@@ -63,6 +63,7 @@ class ModelAuditor:
         provider: str = "anthropic",
         api_key: Optional[str] = None,
         model: Optional[str] = None,
+        base_url: Optional[str] = None,
         system_prompt: Optional[str] = None,
         judge_provider: Optional[str] = None,
         judge_api_key: Optional[str] = None,
@@ -82,6 +83,7 @@ class ModelAuditor:
             api_key=api_key,
             model=model,
             prompt_for_key=prompt_for_key,
+            base_url=base_url,
         )
         self.target_model = self.target_provider.model
         
@@ -104,10 +106,13 @@ class ModelAuditor:
         # Thread lock for logging
         self._log_lock = threading.Lock()
     
-    def _log(self, message: str):
+    def _log(self, message: str, name: Optional[str] = None):
         """Print message if verbose mode is enabled (thread-safe and tqdm-friendly)."""
         if self.verbose:
             with self._log_lock:
+                if name:
+                    # Prepend scenario name for better visibility in parallel mode
+                    message = f"[{name}] {message}"
                 tqdm.write(message)
     
     def _call_target(self, user: str, conversation: List[Dict]) -> str:
@@ -210,7 +215,9 @@ Evaluate this conversation and respond with this exact JSON structure:
         name: str, 
         description: str, 
         max_turns: Optional[int] = None,
-        language: str = "English"
+        language: str = "English",
+        pbar_audit: Optional[tqdm] = None,
+        pbar_judge: Optional[tqdm] = None,
     ) -> AuditResult:
         """
         Run a single audit scenario.
@@ -220,38 +227,48 @@ Evaluate this conversation and respond with this exact JSON structure:
             description: Description of what to test
             max_turns: Override default max_turns
             language: Language for probe generation (default: English)
+            pbar_audit: Optional tqdm progress bar to update for auditing
+            pbar_judge: Optional tqdm progress bar to update for judging
         
         Returns:
             AuditResult with conversation, severity, and analysis
         """
         turns = max_turns or self.max_turns
         
-        self._log(f"\n{'='*60}")
-        self._log(f"SCENARIO: {name}")
-        self._log(f"{'='*60}")
-        self._log(f"{description}\n")
+        mode_str = " (Parallel)" if getattr(self, "_is_parallel", False) else ""
+        self._log(f"--- Started Scenario: {name}{mode_str} ---")
         
         conversation = []
         
         for turn in range(turns):
-            self._log(f"--- Turn {turn + 1}/{turns} ---")
+            self._log(f"--- Turn {turn + 1}/{turns} ---", name=name)
             
             # Generate probe
             probe = self._generate_probe(description, conversation, language)
+            probe = strip_thinking(probe)
+            
             probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
-            self._log(f"PROBE: {probe_preview}")
+            self._log(f"PROBE: {probe_preview}", name=name)
             
             # Get target response
             response = self._call_target(probe, conversation)
-            response_preview = response[:80] + "..." if len(response) > 80 else response
-            self._log(f"TARGET: {response_preview}")
+            response = strip_thinking(response)
             
-            conversation.append({"role": "user", "content": probe})
+            response_preview = response[:80] + "..." if len(response) > 80 else response
+            self._log(f"TARGET: {response_preview}", name=name)
+            
             conversation.append({"role": "assistant", "content": response})
+            if pbar_audit:
+                pbar_audit.update(1)
         
         # Judge the conversation
-        self._log("\nJudging conversation...")
+        self._log("Judging conversation...", name=name)
         judgment = self._judge_conversation(description, conversation)
+        
+        if pbar_judge:
+            pbar_judge.update(1)
+        
+        self._log(f"--- Finished Scenario: {name} [Result: {judgment.get('severity', 'unknown').upper()}] ---")
         
         result = AuditResult(
             scenario_name=name,
@@ -319,40 +336,59 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"   Judge: {judge_info}")
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
         
-        # HuggingFace is not thread-safe, force sequential
-        if self.target_provider.name == "HuggingFace" and max_workers > 1:
-            self._log("⚠️  HuggingFace provider detected. Forcing sequential execution (max_workers=1) for thread safety.\n")
-            max_workers = 1
+        # HuggingFace is not thread-safe for local inference, but the provider handles its own locking.
+        # This allows other parts of the scenario (like cloud-based Judge calls) to run in parallel.
+        is_hf = self.target_provider.name == "HuggingFace" or self.judge_provider.name == "HuggingFace"
+        
+        turns_val = max_turns or self.max_turns
+        total_audit_steps = len(scenario_list) * turns_val
+        total_judge_steps = len(scenario_list)
 
         if max_workers > 1:
-            self._log(f"   Mode: Parallel ({max_workers} workers)\n")
+            self._is_parallel = True
+            mode_desc = f"Parallel ({max_workers} workers)"
+            if is_hf:
+                mode_desc += " [Hybrid: HF synchronized]"
+            self._log(f"   Mode: {mode_desc}\n")
             
-            def _run_single(scenario):
-                return self.run_scenario(
-                    name=scenario["name"],
-                    description=scenario["description"],
-                    max_turns=max_turns,
-                    language=language,
-                )
+            audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"
+            judge_desc = "Judge Progress"
             
             results = []
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Use tqdm to track progress of futures
-                with tqdm(total=len(scenario_list), desc="Auditing Scenarios", disable=not self.verbose) as pbar:
-                    futures = [executor.submit(_run_single, scenario) for scenario in scenario_list]
-                    for future in futures:
-                        results.append(future.result())
-                        pbar.update(1)
+            with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.verbose, position=0) as pbar_audit:
+                with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.verbose, position=1) as pbar_judge:
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        futures = [
+                            executor.submit(
+                                self.run_scenario, 
+                                name=s["name"], 
+                                description=s["description"], 
+                                max_turns=max_turns, 
+                                language=language,
+                                pbar_audit=pbar_audit,
+                                pbar_judge=pbar_judge
+                            ) 
+                            for s in scenario_list
+                        ]
+                        for future in futures:
+                            results.append(future.result())
         else:
             self._log(f"   Mode: Sequential\n")
+            audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"
+            judge_desc = "Judge Progress"
+            
             results = []
-            for scenario in tqdm(scenario_list, desc="Auditing Scenarios", disable=not self.verbose):
-                result = self.run_scenario(
-                    name=scenario["name"],
-                    description=scenario["description"],
-                    max_turns=max_turns,
-                    language=language,
-                )
-                results.append(result)
+            with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.verbose, position=0) as pbar_audit:
+                with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.verbose, position=1) as pbar_judge:
+                    for scenario in scenario_list:
+                        result = self.run_scenario(
+                            name=scenario["name"],
+                            description=scenario["description"],
+                            max_turns=max_turns,
+                            language=language,
+                            pbar_audit=pbar_audit,
+                            pbar_judge=pbar_judge
+                        )
+                        results.append(result)
         
         return AuditResults(results)

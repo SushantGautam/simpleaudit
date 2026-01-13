@@ -94,5 +94,5 @@ local_settings.py
 
 .env
 db.sqlite3
-results
+results**
 sample_audit.py

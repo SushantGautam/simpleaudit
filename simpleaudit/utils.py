@@ -139,19 +139,6 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     return result
 
 def strip_thinking(text: str) -> str:
-    """
-    Remove content between <think> and </think> tags, including the tags.
-    
-    This is used to reduce context size when using reasoning models that
-    output their internal monologue in <think> blocks.
-    """
-    if not text:
-        return text
-    
-    # Remove <think>...</think> blocks (case-insensitive, multi-line)
-    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
-    
-    # Also handle unclosed <think> tags if any (cleaning up)
-    text = re.sub(r"<think>[\s\S]*", "", text, flags=re.IGNORECASE) if "<think>" in text.lower() and "</think>" not in text.lower() else text
-    
-    return text.strip()
+    m = re.search(r"</\s*(think|thinking)\s*>", text, re.I)
+    text1= text[m.end():].strip() if m else text
+    return text1

@@ -13,6 +13,7 @@ import os
 import getpass
 from abc import ABC, abstractmethod
 from typing import Optional
+import threading
 
 # Lazy imports for optional dependencies
 try:
@@ -319,6 +320,7 @@ class HuggingFaceProvider(LLMProvider):
         pipe_kwargs.update(pipeline_kwargs)
         
         self._pipeline = transformers.pipeline(**pipe_kwargs)
+        self._lock = threading.Lock()
     
     @property
     def name(self) -> str:
@@ -332,31 +334,32 @@ class HuggingFaceProvider(LLMProvider):
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
         
-        try:
-            # Use chat template via pipeline
-            outputs = self._pipeline(
-                messages,
-                max_new_tokens=self.max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                return_full_text=False,
-            )
-            return outputs[0]["generated_text"]
-        except Exception:
-            # Fallback: format manually if chat template fails
-            if system:
-                prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
-            else:
-                prompt = f"User: {user}\n\nAssistant:"
-            
-            outputs = self._pipeline(
-                prompt,
-                max_new_tokens=self.max_new_tokens,
-                do_sample=True,
-                temperature=0.7,
-                return_full_text=False,
-            )
-            return outputs[0]["generated_text"]
+        with self._lock:
+            try:
+                # Use chat template via pipeline
+                outputs = self._pipeline(
+                    messages,
+                    max_new_tokens=self.max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    return_full_text=False,
+                )
+                return outputs[0]["generated_text"]
+            except Exception:
+                # Fallback: format manually if chat template fails
+                if system:
+                    prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
+                else:
+                    prompt = f"User: {user}\n\nAssistant:"
+                
+                outputs = self._pipeline(
+                    prompt,
+                    max_new_tokens=self.max_new_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    return_full_text=False,
+                )
+                return outputs[0]["generated_text"]
 
 
 class OllamaProvider(LLMProvider):

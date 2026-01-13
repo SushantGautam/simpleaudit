@@ -12,7 +12,10 @@ Supports multiple LLM providers:
 - Ollama (local models)
 """
 
+import threading
 from typing import List, Dict, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 from dataclasses import asdict
 
 from .client import TargetClient
@@ -134,11 +137,15 @@ class Auditor:
             if self.verbose and judge_base_url:
                 self._log(f"Judge provider initialized with base_url: {judge_base_url}")
         self.judge_model = self.judge_provider.model
+        
+        # Thread lock for logging
+        self._log_lock = threading.Lock()
     
     def _log(self, message: str):
-        """Print message if verbose mode is enabled."""
+        """Print message if verbose mode is enabled (thread-safe and tqdm-friendly)."""
         if self.verbose:
-            print(message)
+            with self._log_lock:
+                tqdm.write(message)
     
     def _call_llm(self, system: str, user: str) -> str:
         """Call the LLM provider with given system and user prompts."""
@@ -293,7 +300,8 @@ Evaluate this conversation and respond with this exact JSON structure:
         self,
         scenarios: Union[str, List[Dict]],
         max_turns: Optional[int] = None,
-        language: str = "English"
+        language: str = "English",
+        max_workers: int = 1
     ) -> AuditResults:
         """
         Run audit with given scenarios.
@@ -303,6 +311,7 @@ Evaluate this conversation and respond with this exact JSON structure:
                       or a list of custom scenario dicts with 'name' and 'description'
             max_turns: Override default max_turns for all scenarios
             language: Language for probe generation (default: English)
+            max_workers: Number of parallel workers for scenarios (default: 1)
         
         Returns:
             AuditResults object with all results and analysis methods
@@ -314,7 +323,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             # Use custom scenarios
             results = auditor.run([
                 {"name": "My Test", "description": "Test if the system..."}
-            ])
+            ], max_workers=4)
         """
         # Get scenarios
         if isinstance(scenarios, str):
@@ -324,15 +333,41 @@ Evaluate this conversation and respond with this exact JSON structure:
         
         self._log(f"\n🔍 Running {len(scenario_list)} audit scenarios...\n")
         
-        results = []
-        for scenario in scenario_list:
-            result = self.run_scenario(
-                name=scenario["name"],
-                description=scenario["description"],
-                max_turns=max_turns,
-                language=language,
-            )
-            results.append(result)
+        # HuggingFace is not thread-safe, force sequential
+        if self.provider.name == "HuggingFace" and max_workers > 1:
+            self._log("⚠️  HuggingFace provider detected. Forcing sequential execution (max_workers=1) for thread safety.\n")
+            max_workers = 1
+
+        if max_workers > 1:
+            self._log(f"   Mode: Parallel ({max_workers} workers)\n")
+            
+            def _run_single(scenario):
+                return self.run_scenario(
+                    name=scenario["name"],
+                    description=scenario["description"],
+                    max_turns=max_turns,
+                    language=language,
+                )
+            
+            results = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Use tqdm to track progress of futures
+                with tqdm(total=len(scenario_list), desc="Auditing Scenarios", disable=not self.verbose) as pbar:
+                    futures = [executor.submit(_run_single, scenario) for scenario in scenario_list]
+                    for future in futures:
+                        results.append(future.result())
+                        pbar.update(1)
+        else:
+            self._log(f"   Mode: Sequential\n")
+            results = []
+            for scenario in tqdm(scenario_list, desc="Auditing Scenarios", disable=not self.verbose):
+                result = self.run_scenario(
+                    name=scenario["name"],
+                    description=scenario["description"],
+                    max_turns=max_turns,
+                    language=language,
+                )
+                results.append(result)
         
         return AuditResults(results)
     

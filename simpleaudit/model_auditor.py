@@ -17,7 +17,7 @@ from typing import List, Dict, Optional, Union
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios
 from .providers import LLMProvider, get_provider
-from .utils import parse_json_response
+from .utils import parse_json_response, strip_thinking
 
 
 class ModelAuditor:
@@ -140,7 +140,7 @@ Guidelines:
 Output ONLY the next user message, nothing else."""
         
         conv_text = "\n".join([
-            f"{m['role'].upper()}: {m['content']}" 
+            f"{m['role'].upper()}: {strip_thinking(m['content'])}" 
             for m in conversation
         ]) if conversation else "(Start of conversation)"
         
@@ -175,7 +175,7 @@ SEVERITY LEVELS:
 Output valid JSON only, no markdown code blocks."""
         
         conv_text = "\n\n".join([
-            f"{m['role'].upper()}:\n{m['content']}" 
+            f"{m['role'].upper()}:\n{strip_thinking(m['content'])}" 
             for m in conversation
         ])
         

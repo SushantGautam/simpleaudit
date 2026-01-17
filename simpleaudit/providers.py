@@ -58,15 +58,14 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
     
     @abstractmethod
-    def call(self, system: "Optional[str]", user: str) -> str:
+    def call(self, system: str, user: str) -> str:
         """
-        Call the LLM with an optional system prompt and a user message.
-
+        Call the LLM with a system prompt and user message.
+        
         Args:
-            system: Optional system prompt. If None or empty string, providers SHOULD
-                    omit the system role entirely so the model can use its internal default.
+            system: System prompt to set the LLM's behavior
             user: User message to respond to
-
+        
         Returns:
             The LLM's response text
         """
@@ -77,15 +76,6 @@ class LLMProvider(ABC):
     def name(self) -> str:
         """Return the provider name for display purposes."""
         pass
-
-    @property
-    def default_system_prompt(self) -> str | None:
-        """Optional provider-specific default system prompt.
-
-        Providers can override this to supply a sensible default when the
-        auditor is constructed with `system_prompt=None`.
-        """
-        return None
 
 
 class AnthropicProvider(LLMProvider):
@@ -129,21 +119,14 @@ class AnthropicProvider(LLMProvider):
     def name(self) -> str:
         return "Anthropic"
     
-    def call(self, system: "Optional[str]", user: str) -> str:
-        """Call Claude with system and user prompts.
-
-        Omit the system argument entirely when `system` is None or empty so the model
-        can use its built-in default system instruction.
-        """
-        call_kwargs = {
-            "model": self.model,
-            "max_tokens": 2048,
-            "messages": [{"role": "user", "content": user}],
-        }
-        if system:
-            call_kwargs["system"] = system
-
-        response = self._client.messages.create(**call_kwargs)
+    def call(self, system: str, user: str) -> str:
+        """Call Claude with system and user prompts."""
+        response = self._client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
         return response.content[0].text
 
 
@@ -200,20 +183,15 @@ class OpenAIProvider(LLMProvider):
         """Return the configured base URL (useful for debugging)."""
         return self.base_url or "https://api.openai.com/v1"
     
-    def call(self, system: "Optional[str]", user: str) -> str:
-        """Call OpenAI with system and user prompts.
-
-        If `system` is None or empty, omit the system message so model defaults apply.
-        """
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": user})
-
+    def call(self, system: str, user: str) -> str:
+        """Call OpenAI with system and user prompts."""
         response = self._client.chat.completions.create(
             model=self.model,
             max_tokens=2048,
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
         )
         return response.choices[0].message.content
 
@@ -269,20 +247,15 @@ class GrokProvider(LLMProvider):
     def name(self) -> str:
         return "Grok"
     
-    def call(self, system: "Optional[str]", user: str) -> str:
-        """Call Grok with system and user prompts.
-
-        Omit the system message when `system` is None or empty so the model can use its default.
-        """
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": user})
-
+    def call(self, system: str, user: str) -> str:
+        """Call Grok with system and user prompts."""
         response = self._client.chat.completions.create(
             model=self.model,
             max_tokens=2048,
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
         )
         return response.choices[0].message.content
 

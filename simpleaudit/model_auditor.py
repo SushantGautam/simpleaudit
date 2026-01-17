@@ -64,7 +64,7 @@ class ModelAuditor:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        system_prompt: str = "",
         judge_provider: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_model: Optional[str] = None,
@@ -75,34 +75,7 @@ class ModelAuditor:
     ):
         self.max_turns = max_turns
         self.verbose = verbose
-        # Accept only None or str for system_prompt; store original arg for later resolution
-        if system_prompt is None or isinstance(system_prompt, str):
-            self._system_prompt_arg = system_prompt
-        else:
-            raise TypeError(
-                f"system_prompt must be a string or None, got {type(system_prompt).__name__}"
-            )
-
-        # Initialize target model provider
-        self.target_provider: LLMProvider = get_provider(
-            name=provider,
-            api_key=api_key,
-            model=model,
-            prompt_for_key=prompt_for_key,
-            base_url=base_url,
-        )
-        self.target_model = self.target_provider.model
-
-        # Resolve actual system_prompt: if caller passed a string use it; if None, consult
-        # provider.default_system_prompt and fall back to None (meaning no system message).
-        if self._system_prompt_arg is None:
-            provider_default = getattr(self.target_provider, "default_system_prompt", None)
-            if provider_default is not None:
-                self.system_prompt = provider_default
-            else:
-                self.system_prompt = None
-        else:
-            self.system_prompt = self._system_prompt_arg
+        self.system_prompt = system_prompt
         
         # Initialize judge provider (defaults to target provider if not specified)
         if judge_provider is None:
@@ -134,14 +107,8 @@ class ModelAuditor:
     
     def _call_target(self, user: str, conversation: List[Dict]) -> str:
         """
-        Call the target model with optional system prompt.
-
-        If `system_prompt` is None or empty, pass None to the provider so it can omit
-        the system role and allow the model to use its own default system prompt.
+        Call the target model with system prompt.
         """
-        # If system_prompt is falsy (None or empty string), pass None to provider
-        if not self.system_prompt:
-            return self.target_provider.call(None, user)
         return self.target_provider.call(self.system_prompt, user)
     
     def _call_judge(self, system: str, user: str) -> str:

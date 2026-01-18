@@ -77,6 +77,16 @@ class ModelAuditor:
         self.verbose = verbose
         self.system_prompt = system_prompt
         
+        # Initialize target model provider
+        self.target_provider: LLMProvider = get_provider(
+            name=provider,
+            api_key=api_key,
+            model=model,
+            prompt_for_key=prompt_for_key,
+            base_url=base_url,
+        )
+        self.target_model = self.target_provider.model
+        
         # Initialize judge provider (defaults to target provider if not specified)
         if judge_provider is None:
             # Use same provider instance for judging

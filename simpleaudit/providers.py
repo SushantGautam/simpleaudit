@@ -14,6 +14,8 @@ import getpass
 from abc import ABC, abstractmethod
 from typing import Optional
 import threading
+import subprocess
+import shutil
 
 # Lazy imports for optional dependencies
 try:
@@ -424,6 +426,86 @@ class OllamaProvider(LLMProvider):
         return data.get("message", {}).get("content", "")
 
 
+
+class CopilotProvider(LLMProvider):
+    """GitHub Copilot CLI provider.
+
+    Stateless per call:
+    - no session resume
+    - no custom instructions
+    - no tools / MCP
+    - no file or URL access
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-5-mini",
+        binary: str = "copilot",
+        deny_tools: Optional[list] = None,
+        timeout: float = 30.0,
+        base_url: Optional[str] = None,
+        **kwargs,
+    ):
+        self.model = model
+        self.binary = binary
+        self.deny_tools = deny_tools or ["write", "shell"]
+        self.timeout = timeout
+        self.base_url = base_url
+
+        if shutil.which(self.binary) is None:
+            raise FileNotFoundError(
+                f"Copilot CLI '{self.binary}' not found on PATH."
+            )
+
+    @property
+    def name(self) -> str:
+        return "Copilot"
+
+    def call(self, system: str, user: str) -> str:
+        system_prompt = system or ""
+        user_prompt = user or ""
+        prompt_arg = f"SYSTEM:\n{system_prompt}\n{user_prompt}"
+
+        cmd = [
+            self.binary,
+            "--model", self.model,
+            "--prompt", prompt_arg,
+            "--silent",
+            "--no-custom-instructions",
+            "--disable-builtin-mcps",
+            "--excluded-tools", "*",
+            "--available-tools", "",
+            "--deny-url", "*",
+            "--disallow-temp-dir",
+        ]
+
+        for t in self.deny_tools:
+            cmd.extend(["--deny-tool", t])
+
+        # minimal, clean environment
+        env = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "LANG": os.environ.get("LANG", "C"),
+            "LC_ALL": os.environ.get("LC_ALL", "C"),
+        }
+
+        try:
+            out = subprocess.check_output(
+                cmd,
+                text=True,
+                timeout=self.timeout,
+                env=env,
+                stderr=subprocess.STDOUT,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"Copilot CLI returned non-zero exit {e.returncode}: {e.output}"
+            ) from e
+
+        return out.strip()
+
+
 # Provider registry for easy lookup
 PROVIDERS = {
     "anthropic": AnthropicProvider,
@@ -436,6 +518,8 @@ PROVIDERS = {
     "hf": HuggingFaceProvider,  # Alias
     "ollama": OllamaProvider,
     "local": OllamaProvider,  # Alias
+    "copilot": CopilotProvider,
+    "github-copilot": CopilotProvider,  # Alias
 }
 
 
@@ -483,7 +567,7 @@ def get_provider(
     provider_class = PROVIDERS[name_lower]
     
     # Local providers don't use API keys
-    local_providers = (HuggingFaceProvider, OllamaProvider)
+    local_providers = (HuggingFaceProvider, OllamaProvider, CopilotProvider)
     
     if provider_class in local_providers:
         # Only pass model and additional kwargs for local providers

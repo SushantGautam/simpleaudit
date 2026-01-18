@@ -12,6 +12,7 @@ from simpleaudit import (
     PROVIDERS,
     HuggingFaceProvider,
     OllamaProvider,
+    CopilotProvider,
 )
 from simpleaudit.utils import parse_json_response
 
@@ -199,3 +200,53 @@ class TestGetProviderWithLocalModels:
         provider = get_provider("local")
         
         assert isinstance(provider, OllamaProvider)
+
+
+class TestCopilotProvider:
+    """Tests for the GitHub Copilot CLI provider."""
+
+    def test_copilot_registered(self):
+        """Ensure 'copilot' and alias are registered in PROVIDERS."""
+        assert "copilot" in PROVIDERS
+        assert "github-copilot" in PROVIDERS
+        assert PROVIDERS["copilot"] == CopilotProvider
+
+    @patch("shutil.which", return_value="/usr/bin/copilot")
+    @patch("subprocess.check_output")
+    def test_call_uses_cli(self, mock_check_output, mock_which):
+        """Test that the provider invokes the copilot CLI and returns output."""
+        mock_check_output.return_value = "Hello from Copilot\n"
+
+        provider = CopilotProvider(model="gpt-4o", binary="copilot")
+        res = provider.call("You are helpful.", "Say hi")
+
+        assert res == "Hello from Copilot"
+        mock_check_output.assert_called_once()
+        cmd = mock_check_output.call_args[0][0]
+        # CLI binary and flags present
+        assert "copilot" in cmd[0]
+        assert "--model" in cmd
+        assert "--prompt" in cmd
+        assert "--deny-tool" in cmd
+
+    @patch("shutil.which", return_value="/usr/bin/copilot")
+    def test_get_provider_returns_copilot(self, mock_which):
+        """Ensure get_provider constructs a CopilotProvider instance."""
+        provider = get_provider("copilot", model="gpt-4o")
+        assert isinstance(provider, CopilotProvider)
+        assert provider.model == "gpt-4o"
+
+    @patch("shutil.which", return_value="/usr/bin/copilot")
+    def test_get_provider_accepts_extra_kwargs(self, mock_which):
+        """Ensure get_provider can pass through provider-style kwargs like `base_url`."""
+        provider = get_provider("copilot", model="gpt-4o", base_url="http://example")
+        assert isinstance(provider, CopilotProvider)
+        assert provider.model == "gpt-4o"
+        assert provider.base_url == "http://example"
+
+    @patch("shutil.which", return_value="/usr/bin/copilot")
+    def test_direct_init_accepts_base_url_and_kwargs(self, mock_which):
+        """Direct construction with base_url and unknown kwargs should not fail."""
+        provider = CopilotProvider(model="gpt-4o", base_url="http://example", some_extra=123)
+        assert isinstance(provider, CopilotProvider)
+        assert provider.base_url == "http://example"

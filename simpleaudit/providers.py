@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import threading
 import subprocess
+import time
 import shutil
 
 # Lazy imports for optional dependencies
@@ -442,15 +443,13 @@ class CopilotProvider(LLMProvider):
         model: str = "gpt-5-mini",
         binary: str = "copilot",
         deny_tools: Optional[list] = None,
-        timeout: float = 30.0,
-        base_url: Optional[str] = None,
+        timeout: float = 150.0,
         **kwargs,
     ):
         self.model = model
         self.binary = binary
         self.deny_tools = deny_tools or ["write", "shell"]
         self.timeout = timeout
-        self.base_url = base_url
 
         if shutil.which(self.binary) is None:
             raise FileNotFoundError(
@@ -490,20 +489,26 @@ class CopilotProvider(LLMProvider):
             "LC_ALL": os.environ.get("LC_ALL", "C"),
         }
 
-        try:
-            out = subprocess.check_output(
-                cmd,
-                text=True,
-                timeout=self.timeout,
-                env=env,
-                stderr=subprocess.STDOUT,
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Copilot CLI returned non-zero exit {e.returncode}: {e.output}"
-            ) from e
-
-        return out.strip()
+        attempts = 3
+        last_out = ""
+        for attempt in range(1, attempts + 1):
+            try:
+                out = subprocess.check_output(
+                    cmd,
+                    text=True,
+                    timeout=self.timeout,
+                    env=env,
+                    stderr=subprocess.STDOUT,
+                )
+            except subprocess.CalledProcessError as e:
+                # Preserve original behavior on non-zero exit (do not retry)
+                raise RuntimeError(
+                    f"Copilot CLI returned non-zero exit {e.returncode}: {e.output}"
+                ) from e
+            if stripped:
+                return stripped
+            last_out = stripped
+        return last_out
 
 
 # Provider registry for easy lookup

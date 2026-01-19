@@ -489,25 +489,28 @@ class CopilotProvider(LLMProvider):
             "LC_ALL": os.environ.get("LC_ALL", "C"),
         }
 
-        attempts = 3
+        attempts = 5
         last_out = ""
+        auth_error_substrs = [
+            "Error: No authentication information found.",
+        ]
         for attempt in range(1, attempts + 1):
             try:
-                out = subprocess.check_output(
+                last_out = subprocess.check_output(
                     cmd,
                     text=True,
                     timeout=self.timeout,
                     env=env,
                     stderr=subprocess.STDOUT,
-                )
+                ).strip()
             except subprocess.CalledProcessError as e:
-                # Preserve original behavior on non-zero exit (do not retry)
                 raise RuntimeError(
                     f"Copilot CLI returned non-zero exit {e.returncode}: {e.output}"
                 ) from e
-            if stripped:
-                return stripped
-            last_out = stripped
+            if last_out:
+                if any(s in last_out for s in auth_error_substrs):
+                    continue
+                return last_out
         return last_out
 
 

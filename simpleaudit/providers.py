@@ -3,7 +3,7 @@ LLM Provider abstraction for SimpleAudit.
 
 This module provides a unified interface for different LLM providers:
 - Anthropic (Claude)
-- OpenAI (GPT-4, GPT-5, etc.)
+- OpenAI (GPT-4, GPT-5, etc.) - supports custom base_url for OpenAI-compatible endpoints
 - Grok (xAI)
 - HuggingFace (local transformers)
 - Ollama (local models)
@@ -556,7 +556,7 @@ def get_provider(
         >>> # Default Anthropic provider
         >>> provider = get_provider("anthropic")
         
-        >>> # OpenAI with custom base URL
+        >>> # OpenAI with custom base URL for OpenAI-compatible endpoint
         >>> provider = get_provider("openai", base_url="https://custom.api.com/v1")
         
         >>> # Local Ollama provider

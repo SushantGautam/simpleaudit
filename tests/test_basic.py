@@ -99,18 +99,27 @@ def test_audit_results_class():
 
 
 def test_auditor_requires_api_key():
-    """Test that Auditor requires API key or package."""
+    """Test that Auditor (ModelAuditor) requires API key or package."""
     import os
     
-    # Temporarily remove API key
-    original = os.environ.pop("ANTHROPIC_API_KEY", None)
+    # Temporarily remove API keys
+    original_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
+    original_openai = os.environ.pop("OPENAI_API_KEY", None)
     
     try:
         # Should raise either:
-        # - ValueError if anthropic package installed but no API key
-        # - ImportError if anthropic package not installed
+        # - ValueError if openai package installed but no API key
+        # - ImportError if openai package not installed
         with pytest.raises((ValueError, ImportError)):
-            Auditor(target="http://localhost:8000", prompt_for_key=False)
+            # Auditor is now an alias for ModelAuditor
+            # For HTTP endpoints, use provider="openai" with base_url
+            Auditor(
+                provider="openai",
+                base_url="http://localhost:8000/v1",
+                prompt_for_key=False
+            )
     finally:
-        if original:
-            os.environ["ANTHROPIC_API_KEY"] = original
+        if original_anthropic:
+            os.environ["ANTHROPIC_API_KEY"] = original_anthropic
+        if original_openai:
+            os.environ["OPENAI_API_KEY"] = original_openai

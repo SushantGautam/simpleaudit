@@ -544,7 +544,7 @@ def get_provider(
         api_key: Optional API key override (not used for local providers)
         model: Optional model override
         prompt_for_key: If True, prompt for key if not found in env
-        **kwargs: Additional provider-specific arguments (e.g., base_url)
+        **kwargs: Additional provider-specific arguments (e.g., base_url for OpenAI/Grok)
     
     Returns:
         LLMProvider instance
@@ -583,7 +583,11 @@ def get_provider(
     else:
         # API-based providers
         init_kwargs = {"prompt_for_key": prompt_for_key}
-        init_kwargs.update(kwargs)
+        
+        # Only pass base_url to providers that support it (OpenAI, Grok)
+        if "base_url" in kwargs and provider_class in (OpenAIProvider, GrokProvider):
+            init_kwargs["base_url"] = kwargs["base_url"]
+        
         if api_key:
             init_kwargs["api_key"] = api_key
         if model:

@@ -5,13 +5,19 @@ A simple, effective tool for red-teaming AI systems using LLMs as auditor and ju
 
 Supports multiple providers:
 - Anthropic (Claude) - default
-- OpenAI (GPT-4, GPT-5, etc.)
+- OpenAI (GPT-4, GPT-5, etc.) - supports custom base_url for OpenAI-compatible endpoints
 - Grok (xAI)
+- HuggingFace (local transformers)
+- Ollama (local models)
 
 Usage:
-    # Audit HTTP endpoint
-    from simpleaudit import Auditor
-    auditor = Auditor(target="http://localhost:8000/v1/chat/completions")
+    # Audit HTTP endpoint (use ModelAuditor with OpenAI provider)
+    from simpleaudit import ModelAuditor
+    auditor = ModelAuditor(
+        provider="openai",
+        base_url="http://localhost:8000/v1",
+        model="default"
+    )
     results = auditor.run("safety")
     
     # Audit model directly via API
@@ -23,7 +29,6 @@ Usage:
 __version__ = "0.1.0"
 __author__ = "SimpleAudit Contributors"
 
-from .auditor import Auditor
 from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
@@ -39,9 +44,13 @@ from .providers import (
     PROVIDERS,
 )
 
+# Backward compatibility: Auditor is now just an alias for ModelAuditor
+# Users should migrate to ModelAuditor, using provider="openai" with base_url for HTTP endpoints
+Auditor = ModelAuditor
+
 __all__ = [
-    "Auditor",
     "ModelAuditor",
+    "Auditor",  # Deprecated alias for backward compatibility
     "AuditResults", 
     "AuditResult",
     "get_scenarios",

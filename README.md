@@ -29,6 +29,20 @@ SimpleAudit uses different models such as Claude for multilingual auditing/red-t
 | Custom | ⭐⭐⭐ Complex | Varies | Varies | Build from scratch |
 
 
+## 📣 Important: API Simplification
+
+**SimpleAudit now uses a single `ModelAuditor` class for all use cases.**
+
+Previously, we had two classes:
+- `Auditor` - for OpenAI-compatible HTTP endpoints
+- `ModelAuditor` - for direct API testing
+
+Since OpenAI provider supports custom `base_url`, `Auditor` was redundant. Now:
+- **Use `ModelAuditor` for everything** (examples below)
+- `Auditor` remains as an alias for backward compatibility
+- Migration is simple: use `provider="openai"` with `base_url` for HTTP endpoints
+
+
 ## Installation
 
 ```bash
@@ -46,13 +60,20 @@ pip install git+https://github.com/kelkalot/simpleaudit.git
 
 ## Quick Start
 
-```python
-from simpleaudit import Auditor
+### Testing HTTP Endpoints (OpenAI-Compatible)
 
-# Create auditor pointing to your AI system (default: Anthropic Claude)
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    # Uses ANTHROPIC_API_KEY env var, or pass: api_key="sk-..."
+```python
+from simpleaudit import ModelAuditor
+
+# Audit an OpenAI-compatible HTTP endpoint
+auditor = ModelAuditor(
+    provider="openai",  # Target model (the one being audited)
+    base_url="http://localhost:8000/v1",  # Your endpoint
+    model="default",  # Model name to send to the endpoint
+    api_key="your-endpoint-key",  # Optional API key for the endpoint
+    
+    # Optional: Configure judge/probe generator (defaults to same as target)
+    judge_provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
 )
 
 # Run built-in safety scenarios
@@ -64,19 +85,37 @@ results.plot()
 results.save("audit_results.json")
 ```
 
-### Using Different Providers
+### Testing Models Directly via API
 
 ```python
-# OpenAI (requires: pip install simpleaudit[openai])
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="openai",  # Uses OPENAI_API_KEY env var
+from simpleaudit import ModelAuditor
+
+# Audit Claude directly
+auditor = ModelAuditor(
+    provider="anthropic",
+    system_prompt="You are a helpful assistant.",
+    # Uses ANTHROPIC_API_KEY env var
+)
+results = auditor.run("system_prompt")
+```
+
+### Using Different Providers for HTTP Endpoints
+
+```python
+# Audit HTTP endpoint with Anthropic for probe generation/judging
+auditor = ModelAuditor(
+    provider="openai",  # Target: HTTP endpoint
+    base_url="http://localhost:8000/v1",
+    api_key="endpoint-key",
+    judge_provider="anthropic",  # Judge: Uses ANTHROPIC_API_KEY
 )
 
-# Grok via xAI (requires: pip install simpleaudit[openai])
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="grok",  # Uses XAI_API_KEY env var
+# Audit HTTP endpoint with Grok for probe generation/judging
+auditor = ModelAuditor(
+    provider="openai",  # Target: HTTP endpoint
+    base_url="http://localhost:8000/v1",
+    api_key="endpoint-key",
+    judge_provider="grok",  # Judge: Uses XAI_API_KEY
 )
 ```
 
@@ -85,15 +124,14 @@ auditor = Auditor(
 ```python
 # Ollama - for locally served models
 # First: ollama serve && ollama pull llama3.2
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
-    provider="ollama",  # Uses local Ollama instance
-    model="llama3.2",   # Or "mistral", "codellama", etc.
+auditor = ModelAuditor(
+    provider="ollama",
+    model="llama3.2",
+    system_prompt="You are a helpful assistant.",
 )
 
 # HuggingFace - for direct transformers inference
-auditor = Auditor(
-    target="http://localhost:8000/v1/chat/completions",
+auditor = ModelAuditor(
     provider="huggingface",
     model="meta-llama/Llama-3.2-1B-Instruct",
 )

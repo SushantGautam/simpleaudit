@@ -50,13 +50,13 @@ def test_model_auditor_parallelism():
             exit(1)
 
 def test_auditor_parallelism():
-    """Test that Auditor run scenarios in parallel."""
-    print("\nTesting Auditor parallelism with tqdm progress bar...")
-    with patch("simpleaudit.auditor.get_provider") as mock_get_provider, \
-         patch("simpleaudit.auditor.TargetClient") as mock_target_client:
+    """Test that ModelAuditor (Auditor alias) runs scenarios in parallel."""
+    print("\nTesting ModelAuditor parallelism with tqdm progress bar...")
+    with patch("simpleaudit.model_auditor.get_provider") as mock_get_provider:
         
         mock_provider = MagicMock()
         mock_provider.model = "test-model"
+        mock_provider.name = "OpenAI"
         
         def mock_call(system, user):
             time.sleep(0.2)
@@ -65,11 +65,15 @@ def test_auditor_parallelism():
         mock_provider.call.side_effect = mock_call
         mock_get_provider.return_value = mock_provider
         
-        mock_client = MagicMock()
-        mock_client.chat.return_value = "response"
-        mock_target_client.return_value = mock_client
-        
-        auditor = Auditor(target="http://test", provider="openai", verbose=True)
+        # Auditor is now an alias for ModelAuditor
+        # For HTTP endpoints, use provider="openai" with base_url
+        auditor = Auditor(
+            provider="openai",
+            base_url="http://test/v1",
+            api_key="test-key",
+            prompt_for_key=False,
+            verbose=True
+        )
         
         scenarios = [
             {"name": "S1", "description": "D1"},

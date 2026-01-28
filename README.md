@@ -67,12 +67,12 @@ from simpleaudit import ModelAuditor
 
 # Audit an OpenAI-compatible HTTP endpoint
 auditor = ModelAuditor(
-    provider="openai",  # Use OpenAI provider
+    provider="openai",  # Target model (the one being audited)
     base_url="http://localhost:8000/v1",  # Your endpoint
     model="default",  # Model name to send to the endpoint
     api_key="your-endpoint-key",  # Optional API key for the endpoint
     
-    # Configure probe generator/judge (defaults to anthropic)
+    # Optional: Configure judge/probe generator (defaults to same as target)
     judge_provider="anthropic",  # Uses ANTHROPIC_API_KEY env var
 )
 
@@ -102,20 +102,20 @@ results = auditor.run("system_prompt")
 ### Using Different Providers for HTTP Endpoints
 
 ```python
-# With OpenAI for probe generation
+# Audit HTTP endpoint with Anthropic for probe generation/judging
 auditor = ModelAuditor(
-    provider="openai",  # Target endpoint
+    provider="openai",  # Target: HTTP endpoint
     base_url="http://localhost:8000/v1",
     api_key="endpoint-key",
-    judge_provider="openai",  # Uses OPENAI_API_KEY for judging
+    judge_provider="anthropic",  # Judge: Uses ANTHROPIC_API_KEY
 )
 
-# With Grok for probe generation
+# Audit HTTP endpoint with Grok for probe generation/judging
 auditor = ModelAuditor(
-    provider="openai",  # Target endpoint
+    provider="openai",  # Target: HTTP endpoint
     base_url="http://localhost:8000/v1",
     api_key="endpoint-key",
-    judge_provider="grok",  # Uses XAI_API_KEY for judging
+    judge_provider="grok",  # Judge: Uses XAI_API_KEY
 )
 ```
 

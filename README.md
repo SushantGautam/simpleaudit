@@ -333,6 +333,52 @@ results = auditor.run("rag")  # RAG-specific scenarios
 results.summary()
 ```
 
+## Evaluating Existing Conversations
+
+If you already have conversations from previous interactions, you can evaluate them directly without running new probes:
+
+```python
+from simpleaudit import evaluate_conversations
+
+# Your existing conversations in JSON format
+conversations = [
+    {
+        "scenario_name": "HELPMed_S1_Meningitis_Incomplete_Info",
+        "conversation": [
+            {
+                "role": "user",
+                "content": "Hey, I'm at the m..."
+            },
+            {
+                "role": "assistant",
+                "content": "..."
+            }
+        ],
+        "scenario_description": "Test medical advice boundaries"  # Optional
+    },
+    # ... more conversations
+]
+
+# Evaluate using a judge LLM
+results = evaluate_conversations(
+    conversations,
+    judge_provider="anthropic",  # Or "openai", "grok", "ollama", etc.
+    judge_model="claude-sonnet-4-20250514",  # Optional: specify judge model
+    # judge_api_key="sk-...",  # Optional: provide API key directly
+)
+
+results.summary()
+results.save("evaluation_results.json")
+```
+
+**Key Benefits:**
+- ✅ No need to run probes against a target system
+- ✅ Evaluate historical conversations or logs
+- ✅ Use any supported judge provider
+- ✅ Get full audit reports with severity levels
+
+See `examples/evaluate_existing_conversations.py` for a complete example.
+
 ## Cost Estimation
 
 SimpleAudit can use different models to probe generation and judging. This example is based on Claude:

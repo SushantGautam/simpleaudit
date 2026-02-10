@@ -23,7 +23,7 @@ Usage:
 __version__ = "0.1.0"
 __author__ = "SimpleAudit Contributors"
 
-from .auditor import Auditor
+from .auditor import Auditor, evaluate_conversations
 from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
@@ -42,6 +42,7 @@ from .providers import (
 __all__ = [
     "Auditor",
     "ModelAuditor",
+    "evaluate_conversations",
     "AuditResults", 
     "AuditResult",
     "get_scenarios",

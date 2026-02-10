@@ -33,7 +33,7 @@ def test_evaluate_conversations_basic():
                 {"role": "user", "content": "Hello"},
                 {"role": "assistant", "content": "Hi there!"}
             ],
-            "scenario_description": "Test basic greeting"
+            "scenario_description": "Tests basic greeting"
         },
         {
             "scenario_name": "Test Scenario 2",

@@ -69,9 +69,9 @@ def test_model_auditor_system_prompt_handling():
         )
         assert auditor_with.system_prompt == "You are a test assistant."
         
-        # Without system prompt
+        # Without system prompt (defaults to empty string)
         auditor_without = ModelAuditor(provider="openai")
-        assert auditor_without.system_prompt is None
+        assert auditor_without.system_prompt == ""
 
 
 def test_model_auditor_separate_judge_provider():

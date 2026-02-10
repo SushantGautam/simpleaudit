@@ -362,7 +362,9 @@ conversations = [
 # Evaluate using a judge LLM
 results = evaluate_conversations(
     conversations,
-    provider="anthropic",  # Or "openai", "grok", etc.
+    judge_provider="anthropic",  # Or "openai", "grok", "ollama", etc.
+    judge_model="claude-sonnet-4-20250514",  # Optional: specify judge model
+    # judge_api_key="sk-...",  # Optional: provide API key directly
 )
 
 results.summary()

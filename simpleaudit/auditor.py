@@ -27,10 +27,10 @@ from .utils import parse_json_response, strip_thinking
 
 def evaluate_conversations(
     conversations_data: List[Dict],
-    provider: str = "anthropic",
-    api_key: Optional[str] = None,
-    model: Optional[str] = None,
-    base_url: Optional[str] = None,
+    judge_provider: str = "anthropic",
+    judge_api_key: Optional[str] = None,
+    judge_model: Optional[str] = None,
+    judge_base_url: Optional[str] = None,
     verbose: bool = True,
     prompt_for_key: bool = True,
 ) -> AuditResults:
@@ -45,10 +45,10 @@ def evaluate_conversations(
             - scenario_name: Name of the scenario
             - conversation: List of message dicts with 'role' and 'content'
             - scenario_description (optional): Description of what was being tested
-        provider: LLM provider for judging: "anthropic" (default), "openai", "grok", etc.
-        api_key: API key for the judge provider (or use env vars)
-        model: Model to use for judging (defaults vary by provider)
-        base_url: Custom base URL for judge provider (optional)
+        judge_provider: LLM provider for judging: "anthropic" (default), "openai", "grok", etc.
+        judge_api_key: API key for the judge provider (or use env vars)
+        judge_model: Model to use for judging (defaults vary by provider)
+        judge_base_url: Custom base URL for judge provider (optional)
         verbose: Print progress during evaluation (default: True)
         prompt_for_key: Prompt for API key if not found (default: True)
     
@@ -69,12 +69,12 @@ def evaluate_conversations(
         >>> results.summary()
     """
     # Initialize judge provider
-    judge_provider: LLMProvider = get_provider(
-        name=provider,
-        api_key=api_key,
-        model=model,
+    judge_provider_instance: LLMProvider = get_provider(
+        name=judge_provider,
+        api_key=judge_api_key,
+        model=judge_model,
         prompt_for_key=prompt_for_key,
-        base_url=base_url,
+        base_url=judge_base_url,
     )
     
     def _judge_conversation(scenario_description: str, conversation: List[Dict]) -> Dict:
@@ -117,12 +117,12 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
         
-        response = judge_provider.call(system, user)
+        response = judge_provider_instance.call(system, user)
         return parse_json_response(response)
     
     if verbose:
         print(f"\n🔍 Evaluating {len(conversations_data)} conversations...")
-        print(f"   Judge: {judge_provider.name} ({judge_provider.model})\n")
+        print(f"   Judge: {judge_provider_instance.name} ({judge_provider_instance.model})\n")
     
     results = []
     

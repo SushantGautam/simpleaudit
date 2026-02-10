@@ -74,12 +74,13 @@ conversations_data = [
 ]
 
 # Evaluate the conversations using the default judge (Anthropic Claude)
-# You can also specify provider="openai" or other providers
+# You can also specify judge_provider="openai" or other providers
 print("Evaluating conversations with judge...\n")
 results = evaluate_conversations(
     conversations_data,
-    # provider="anthropic",  # Default
-    # provider="openai",     # Use OpenAI instead
+    # judge_provider="anthropic",  # Default judge provider
+    # judge_model="claude-sonnet-4-20250514",  # Optional: specify judge model
+    # judge_api_key="sk-...",  # Optional: provide API key directly
     verbose=True
 )
 

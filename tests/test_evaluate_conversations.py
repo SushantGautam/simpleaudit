@@ -148,10 +148,10 @@ def test_evaluate_conversations_provider_options():
     with patch("simpleaudit.auditor.get_provider", return_value=mock_provider) as mock_get_provider:
         results = evaluate_conversations(
             conversations,
-            provider="openai",
-            api_key="test-key",
-            model="gpt-4o",
-            base_url="https://api.openai.com/v1",
+            judge_provider="openai",
+            judge_api_key="test-key",
+            judge_model="gpt-4o",
+            judge_base_url="https://api.openai.com/v1",
             verbose=False
         )
         

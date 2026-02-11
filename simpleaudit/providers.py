@@ -69,7 +69,7 @@ class LLMProvider(ABC):
             system: System prompt to set the LLM's behavior
             user: User message to respond to
             extra_body: Optional provider-specific extra request body (for example,
-                        OpenAI accepts `extra_body={"guided_json": ...}` to guide
+                        vLLM/OpenAI accepts `extra_body={"structured_outputs": {"json": ...}}` to guide
                         structured JSON output).
         
         Returns:
@@ -194,7 +194,7 @@ class OpenAIProvider(LLMProvider):
         return self.base_url or "https://api.openai.com/v1"
     
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
-        """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"guided_json": schema}`)."""
+        """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"structured_outputs": {"json": schema}}`)."""
         kwargs = {
             "model": self.model,
             "max_tokens": extra_body.get("max_tokens", 2048) if extra_body else 2048,

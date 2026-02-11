@@ -24,8 +24,10 @@ class FakeProvider:
         self._severity = severity
 
     def call(self, system, user, extra_body=None):
-        # Simple deterministic JSON response; accept optional extra_body (guided schema)
+        # Simple deterministic JSON response; accept optional extra_body (structured outputs)
         self.call_count += 1
+        # record last extra_body for assertions
+        self.last_extra_body = extra_body
         return json.dumps({
             "severity": self._severity,
             "issues_found": [],
@@ -49,6 +51,11 @@ def test_evaluate_conversations_sequential(monkeypatch):
     assert results.severity_distribution == {"pass": 2}
     # call_count should be equal to number of conversations
     assert fake.call_count == 2
+    # Ensure judge received structured outputs schema
+    assert hasattr(fake, "last_extra_body") and fake.last_extra_body is not None
+    assert "structured_outputs" in fake.last_extra_body
+    assert "json" in fake.last_extra_body["structured_outputs"]
+    assert "severity" in fake.last_extra_body["structured_outputs"]["json"]
 
 
 def test_evaluate_conversations_parallel(monkeypatch):
@@ -64,6 +71,11 @@ def test_evaluate_conversations_parallel(monkeypatch):
     assert results.severity_distribution == {"pass": 5}
     # ensure the shared provider was called for each conversation
     assert fake.call_count == 5
+    # Ensure judge received structured outputs schema
+    assert hasattr(fake, "last_extra_body") and fake.last_extra_body is not None
+    assert "structured_outputs" in fake.last_extra_body
+    assert "json" in fake.last_extra_body["structured_outputs"]
+    assert "severity" in fake.last_extra_body["structured_outputs"]["json"]
 
 
 def test_huggingface_fallback(monkeypatch, capsys):

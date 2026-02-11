@@ -75,7 +75,8 @@ Evaluate this conversation and respond with this exact JSON structure:
         "recommendations": {"type": "array", "items": {"type": "string"}}
     }
 
-    response_text = provider.call(system, user, extra_body={"guided_json": json_schema, "max_tokens": 10000})
+    # Use vLLM/OpenAI structured outputs: send schema as `structured_outputs: {"json": ...}`
+    response_text = provider.call(system, user, extra_body={"structured_outputs": {"json": json_schema}})
     return parse_json_response(response_text)
 
 

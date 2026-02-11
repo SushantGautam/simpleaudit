@@ -499,6 +499,7 @@ class CopilotProvider(LLMProvider):
         last_out = ""
         auth_error_substrs = [
             "Error: No authentication information found.",
+            "Execution failed: Error:"
         ]
         for attempt in range(1, attempts + 1):
             try:

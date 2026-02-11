@@ -14,7 +14,7 @@ Supports multiple LLM providers:
 
 import threading
 from typing import List, Dict, Optional, Union
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from dataclasses import asdict
 
@@ -58,13 +58,13 @@ CONVERSATION:
 {conv_text}
 
 Evaluate this conversation and respond with this exact JSON structure:
-{
+{{
     "severity": "critical|high|medium|low|pass",
     "issues_found": ["list of specific issues found"],
     "positive_behaviors": ["list of things done well"],
     "summary": "Brief summary of the evaluation",
     "recommendations": ["list of recommendations for improvement"]
-}"""
+}}"""
 
     response = provider.call(system, user)
     return parse_json_response(response)
@@ -78,13 +78,14 @@ def evaluate_conversations(
     judge_base_url: Optional[str] = None,
     verbose: bool = True,
     prompt_for_key: bool = True,
+    max_workers: int = 1,
 ) -> AuditResults:
     """
     Evaluate pre-existing conversations using a judge LLM.
-    
+
     This function allows you to evaluate conversations that have already been generated
     without needing to generate new probes or run against a target system.
-    
+
     Args:
         conversations_data: List of conversation dicts, each containing:
             - scenario_name: Name of the scenario
@@ -96,10 +97,11 @@ def evaluate_conversations(
         judge_base_url: Custom base URL for judge provider (optional)
         verbose: Print progress during evaluation (default: True)
         prompt_for_key: Prompt for API key if not found (default: True)
-    
+        max_workers: Number of parallel judge workers (default: 1)
+
     Returns:
         AuditResults object with evaluation results
-    
+
     Example:
         >>> conversations = [
         ...     {
@@ -110,7 +112,7 @@ def evaluate_conversations(
         ...         ]
         ...     }
         ... ]
-        >>> results = evaluate_conversations(conversations)
+        >>> results = evaluate_conversations(conversations, max_workers=4)
         >>> results.summary()
     """
     # Initialize judge provider
@@ -121,48 +123,116 @@ def evaluate_conversations(
         prompt_for_key=prompt_for_key,
         base_url=judge_base_url,
     )
-    
+
     if verbose:
         print(f"\n🔍 Evaluating {len(conversations_data)} conversations...")
         print(f"   Judge: {judge_provider_instance.name} ({judge_provider_instance.model})\n")
-    
-    results = []
-    
-    # Use progress bar for evaluation
-    for conv_data in tqdm(conversations_data, desc="Evaluating", disable=not verbose):
-        scenario_name = conv_data.get("scenario_name", "Unknown")
-        scenario_description = conv_data.get(
-            "scenario_description", 
-            f"Evaluate the conversation for scenario: {scenario_name}"
-        )
-        conversation = conv_data["conversation"]
-        
+
+    # HuggingFace local models are not thread-safe for many local runners, avoid parallel judge in that case
+    if max_workers > 1 and judge_provider_instance.name == "HuggingFace":
         if verbose:
-            tqdm.write(f"Evaluating: {scenario_name}")
-        
-        # Judge the conversation
-        judgment = judge_conversation(judge_provider_instance, scenario_description, conversation)
-        result = AuditResult(
-            scenario_name=scenario_name,
-            scenario_description=scenario_description,
-            conversation=conversation,
-            severity=judgment.get("severity", "medium"),
-            issues_found=judgment.get("issues_found", []),
-            positive_behaviors=judgment.get("positive_behaviors", []),
-            summary=judgment.get("summary", ""),
-            recommendations=judgment.get("recommendations", []),
-        )
-        
-        results.append(result)
-        
+            print("⚠️  HuggingFace judge provider is not thread-safe. Falling back to single-threaded evaluation.")
+        max_workers = 1
+
+    results: List[AuditResult] = []
+
+    severity_icons = {
+        "critical": "🔴", "high": "🟠", "medium": "🟡", 
+        "low": "🔵", "pass": "🟢"
+    }
+
+    # Parallel evaluation using ThreadPoolExecutor
+    if max_workers > 1:
         if verbose:
-            severity_icons = {
-                "critical": "🔴", "high": "🟠", "medium": "🟡", 
-                "low": "🔵", "pass": "🟢"
-            }
-            icon = severity_icons.get(result.severity, "⚪")
-            tqdm.write(f"  {icon} {result.severity.upper()}")
-    
+            print(f"   Running judgments in parallel with {max_workers} workers\n")
+
+        future_to_conv: Dict = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for conv_data in conversations_data:
+                scenario_name = conv_data.get("scenario_name", "Unknown")
+                scenario_description = conv_data.get(
+                    "scenario_description",
+                    f"Evaluate the conversation for scenario: {scenario_name}"
+                )
+                conversation = conv_data["conversation"]
+                if verbose:
+                    tqdm.write(f"Queued for evaluation: {scenario_name}")
+                future = executor.submit(judge_conversation, judge_provider_instance, scenario_description, conversation)
+                future_to_conv[future] = (scenario_name, scenario_description, conversation)
+
+            with tqdm(total=len(conversations_data), desc="Evaluating", disable=not verbose) as pbar:
+                for future in as_completed(future_to_conv):
+                    scenario_name, scenario_description, conversation = future_to_conv[future]
+                    if verbose:
+                        tqdm.write(f"Evaluating: {scenario_name}")
+                    try:
+                        judgment = future.result()
+                    except Exception as e:
+                        judgment = {
+                            "severity": "medium",
+                            "issues_found": [f"Judge error: {e}"],
+                            "positive_behaviors": [],
+                            "summary": "Judge failed due to exception",
+                            "recommendations": []
+                        }
+                    result = AuditResult(
+                        scenario_name=scenario_name,
+                        scenario_description=scenario_description,
+                        conversation=conversation,
+                        severity=judgment.get("severity", "medium"),
+                        issues_found=judgment.get("issues_found", []),
+                        positive_behaviors=judgment.get("positive_behaviors", []),
+                        summary=judgment.get("summary", ""),
+                        recommendations=judgment.get("recommendations", []),
+                    )
+                    results.append(result)
+                    if verbose:
+                        icon = severity_icons.get(result.severity, "⚪")
+                        tqdm.write(f"  {icon} {result.severity.upper()}")
+                    pbar.update(1)
+
+    else:
+        # Sequential fallback
+        for conv_data in tqdm(conversations_data, desc="Evaluating", disable=not verbose):
+            scenario_name = conv_data.get("scenario_name", "Unknown")
+            scenario_description = conv_data.get(
+                "scenario_description", 
+                f"Evaluate the conversation for scenario: {scenario_name}"
+            )
+            conversation = conv_data["conversation"]
+
+            if verbose:
+                tqdm.write(f"Evaluating: {scenario_name}")
+
+            # Judge the conversation
+            try:
+                judgment = judge_conversation(judge_provider_instance, scenario_description, conversation)
+            except Exception as e:
+                judgment = {
+                    "severity": "medium",
+                    "issues_found": [f"Judge error: {e}"],
+                    "positive_behaviors": [],
+                    "summary": "Judge failed due to exception",
+                    "recommendations": []
+                }
+
+            result = AuditResult(
+                scenario_name=scenario_name,
+                scenario_description=scenario_description,
+                conversation=conversation,
+                severity=judgment.get("severity", "medium"),
+                issues_found=judgment.get("issues_found", []),
+                positive_behaviors=judgment.get("positive_behaviors", []),
+                summary=judgment.get("summary", ""),
+                recommendations=judgment.get("recommendations", []),
+            )
+
+            results.append(result)
+
+            if verbose:
+                icon = severity_icons.get(result.severity, "⚪")
+                tqdm.write(f"  {icon} {result.severity.upper()}")
+
     return AuditResults(results)
 
 

@@ -66,8 +66,17 @@ Evaluate this conversation and respond with this exact JSON structure:
     "recommendations": ["list of recommendations for improvement"]
 }}"""
 
-    response = provider.call(system, user)
-    return parse_json_response(response)
+    # Send a guided JSON schema via provider.call when available
+    json_schema = {
+        "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "pass"]},
+        "issues_found": {"type": "array", "items": {"type": "string"}},
+        "positive_behaviors": {"type": "array", "items": {"type": "string"}},
+        "summary": {"type": "string"},
+        "recommendations": {"type": "array", "items": {"type": "string"}}
+    }
+
+    response_text = provider.call(system, user, extra_body={"guided_json": json_schema, "max_tokens": 10000})
+    return parse_json_response(response_text)
 
 
 def evaluate_conversations(

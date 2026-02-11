@@ -61,13 +61,16 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
     
     @abstractmethod
-    def call(self, system: str, user: str) -> str:
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """
         Call the LLM with a system prompt and user message.
         
         Args:
             system: System prompt to set the LLM's behavior
             user: User message to respond to
+            extra_body: Optional provider-specific extra request body (for example,
+                        OpenAI accepts `extra_body={"guided_json": ...}` to guide
+                        structured JSON output).
         
         Returns:
             The LLM's response text
@@ -126,8 +129,8 @@ class AnthropicProvider(LLMProvider):
     def name(self) -> str:
         return "Anthropic"
     
-    def call(self, system: str, user: str) -> str:
-        """Call Claude with system and user prompts."""
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Claude with system and user prompts. `extra_body` is ignored for Anthropic."""
         response = self._client.messages.create(
             model=self.model,
             max_tokens=2048,
@@ -190,16 +193,21 @@ class OpenAIProvider(LLMProvider):
         """Return the configured base URL (useful for debugging)."""
         return self.base_url or "https://api.openai.com/v1"
     
-    def call(self, system: str, user: str) -> str:
-        """Call OpenAI with system and user prompts."""
-        response = self._client.chat.completions.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"guided_json": schema}`)."""
+        kwargs = {
+            "model": self.model,
+            "max_tokens": extra_body.get("max_tokens", 2048) if extra_body else 2048,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        )
+        }
+        if extra_body is not None:
+            # Pass provider-specific extra body (OpenAI client supports `extra_body`)
+            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+        else:
+            response = self._client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
 
@@ -254,16 +262,20 @@ class GrokProvider(LLMProvider):
     def name(self) -> str:
         return "Grok"
     
-    def call(self, system: str, user: str) -> str:
-        """Call Grok with system and user prompts."""
-        response = self._client.chat.completions.create(
-            model=self.model,
-            max_tokens=2048,
-            messages=[
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Grok with system and user prompts. Accepts optional `extra_body` forwarded to the underlying OpenAI-compatible client."""
+        kwargs = {
+            "model": self.model,
+            "max_tokens": 2048,
+            "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        )
+        }
+        if extra_body is not None:
+            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+        else:
+            response = self._client.chat.completions.create(**kwargs)
         return response.choices[0].message.content
 
 
@@ -333,8 +345,8 @@ class HuggingFaceProvider(LLMProvider):
     def name(self) -> str:
         return "HuggingFace"
     
-    def call(self, system: str, user: str) -> str:
-        """Call HuggingFace model with system and user prompts."""
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call HuggingFace model with system and user prompts. `extra_body` is ignored."""
         # Try using chat template if available
         messages = []
         if system:

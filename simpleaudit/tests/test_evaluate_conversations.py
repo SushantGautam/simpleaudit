@@ -23,8 +23,8 @@ class FakeProvider:
         self.call_count = 0
         self._severity = severity
 
-    def call(self, system, user):
-        # Simple deterministic JSON response
+    def call(self, system, user, extra_body=None):
+        # Simple deterministic JSON response; accept optional extra_body (guided schema)
         self.call_count += 1
         return json.dumps({
             "severity": self._severity,

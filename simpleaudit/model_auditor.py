@@ -64,7 +64,7 @@ class ModelAuditor:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         base_url: Optional[str] = None,
-        system_prompt: str = "",
+        system_prompt: Optional[str] = None,
         judge_provider: Optional[str] = None,
         judge_api_key: Optional[str] = None,
         judge_model: Optional[str] = None,
@@ -238,6 +238,9 @@ Evaluate this conversation and respond with this exact JSON structure:
             probe_preview = probe[:80] + "..." if len(probe) > 80 else probe
             self._log(f"PROBE: {probe_preview}", name=name)
             
+            # Record user probe
+            conversation.append({"role": "user", "content": probe})
+            
             # Get target response
             response = self._call_target(probe, conversation)
             response = strip_thinking(response)
@@ -325,18 +328,18 @@ Evaluate this conversation and respond with this exact JSON structure:
         self._log(f"   System Prompt: {'Yes' if self.system_prompt else 'No'}\n")
         
         # HuggingFace is not thread-safe for local inference, but the provider handles its own locking.
-        # This allows other parts of the scenario (like cloud-based Judge calls) to run in parallel.
+        # For safety, force sequential execution if either provider is HuggingFace.
         is_hf = self.target_provider.name == "HuggingFace" or self.judge_provider.name == "HuggingFace"
         
         turns_val = max_turns or self.max_turns
         total_audit_steps = len(scenario_list) * turns_val
         total_judge_steps = len(scenario_list)
 
-        if max_workers > 1:
+        effective_workers = 1 if is_hf else max_workers
+
+        if effective_workers > 1:
             self._is_parallel = True
-            mode_desc = f"Parallel ({max_workers} workers)"
-            if is_hf:
-                mode_desc += " [Hybrid: HF synchronized]"
+            mode_desc = f"Parallel ({effective_workers} workers)"
             self._log(f"   Mode: {mode_desc}\n")
             
             audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"
@@ -345,7 +348,7 @@ Evaluate this conversation and respond with this exact JSON structure:
             results = []
             with tqdm(total=total_audit_steps, desc=audit_desc, disable=not self.verbose, position=0) as pbar_audit:
                 with tqdm(total=total_judge_steps, desc=judge_desc, disable=not self.verbose, position=1) as pbar_judge:
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    with ThreadPoolExecutor(max_workers=effective_workers) as executor:
                         futures = [
                             executor.submit(
                                 self.run_scenario, 
@@ -361,6 +364,9 @@ Evaluate this conversation and respond with this exact JSON structure:
                         for future in futures:
                             results.append(future.result())
         else:
+            # Log when we intentionally force sequential mode for HF
+            if is_hf and max_workers > 1:
+                self._log("HuggingFace detected: forcing sequential execution for safety.\n")
             self._log(f"   Mode: Sequential\n")
             audit_desc = f"{turns_val} Turns & {len(scenario_list)} Scenarios | Audit Progress"
             judge_desc = "Judge Progress"

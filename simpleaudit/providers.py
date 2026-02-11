@@ -89,6 +89,7 @@ class AnthropicProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "claude-sonnet-4-20250514",
         prompt_for_key: bool = True,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize Anthropic provider.
@@ -97,6 +98,7 @@ class AnthropicProvider(LLMProvider):
             api_key: Anthropic API key (or uses ANTHROPIC_API_KEY env var)
             model: Model to use (default: claude-sonnet-4-20250514)
             prompt_for_key: If True, prompt for key if not found in env
+            base_url: Ignored for Anthropic but accepted for compatibility
         """
         if anthropic is None:
             raise ImportError(
@@ -115,6 +117,8 @@ class AnthropicProvider(LLMProvider):
                     "or set ANTHROPIC_API_KEY environment variable."
                 )
         
+        # Keep base_url attribute for compatibility with get_provider kwargs
+        self.base_url = base_url
         self.model = model
         self._client = anthropic.Anthropic(api_key=self._api_key)
     
@@ -444,12 +448,14 @@ class CopilotProvider(LLMProvider):
         binary: str = "copilot",
         deny_tools: Optional[list] = None,
         timeout: float = 150.0,
+        base_url: Optional[str] = None,
         **kwargs,
     ):
         self.model = model
         self.binary = binary
         self.deny_tools = deny_tools or ["write", "shell"]
         self.timeout = timeout
+        self.base_url = base_url
 
         if shutil.which(self.binary) is None:
             raise FileNotFoundError(

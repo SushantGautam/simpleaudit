@@ -139,6 +139,20 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     return result
 
 def strip_thinking(text: str) -> str:
-    m = re.search(r"</\s*(think|thinking)\s*>", text, re.I)
-    text1= text[m.end():].strip() if m else text
-    return text1
+    """Remove all <think>...</think> or <thinking>...</thinking> blocks.
+
+    Behavior:
+    - Case-insensitive
+    - Multiline aware
+    - If there is an opening tag without a corresponding closing tag,
+      return an empty string (safe fallback for unclosed thinking blocks).
+    """
+    # Count opening vs closing tags; if unbalanced (more opens), return empty
+    opens = re.findall(r"(?i)<\s*(think|thinking)\s*>", text)
+    closes = re.findall(r"(?i)<\s*/\s*(think|thinking)\s*>", text)
+    if len(opens) > len(closes):
+        return ""
+
+    # Remove all well-formed think/thinking blocks
+    cleaned = re.sub(r"(?is)<\s*(think|thinking)\s*>.*?<\s*/\s*(think|thinking)\s*>", "", text)
+    return cleaned.strip()

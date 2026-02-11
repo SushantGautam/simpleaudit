@@ -236,6 +236,8 @@ class Auditor:
         self.target_url = target
         self.max_turns = max_turns
         self.verbose = verbose
+        # Thread lock for logging (initialize early so _log can be used safely)
+        self._log_lock = threading.Lock()
         
         # Initialize target client
         self.target = TargetClient(target, model=target_model, timeout=timeout, api_key=target_api_key)

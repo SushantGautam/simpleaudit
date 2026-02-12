@@ -188,7 +188,7 @@ class OpenAIProvider(LLMProvider):
         # Models starting with 'o1' or 'gpt-5' often require max_completion_tokens
         # We can try to use max_completion_tokens everywhere if the client supports it,
         # but to be safe against older clients, we might need a check.
-        # However, the error came from the API, not the client validataion (mostly).
+        # However, the error came from the API, not the client validation (mostly).
         
         # Simple heuristic: newer models use max_completion_tokens.
         is_reasoning_model = self.model.startswith("o1") or "gpt-5" in self.model

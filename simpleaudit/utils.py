@@ -8,6 +8,7 @@ import json
 import re
 from typing import Dict, Any
 
+
 def parse_json_response(response: str, default_severity: str = "medium") -> Dict[str, Any]:
     """
     Parse JSON from LLM response with robust fallback handling.
@@ -136,21 +137,3 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     result["summary"] = text[:500]
     
     return result
-def strip_thinking(text: str) -> str:
-    """Remove all <think>...</think> or <thinking>...</thinking> blocks.
-
-    Behavior:
-    - Case-insensitive
-    - Multiline aware
-    - If there is an opening tag without a corresponding closing tag,
-      return an empty string (safe fallback for unclosed thinking blocks).
-    """
-    # Count opening vs closing tags; if unbalanced (more opens), return empty
-    opens = re.findall(r"(?i)<\s*(think|thinking)\s*>", text)
-    closes = re.findall(r"(?i)<\s*/\s*(think|thinking)\s*>", text)
-    if len(opens) > len(closes):
-        return ""
-
-    # Remove all well-formed think/thinking blocks
-    cleaned = re.sub(r"(?is)<\s*(think|thinking)\s*>.*?<\s*/\s*(think|thinking)\s*>", "", text)
-    return cleaned.strip()

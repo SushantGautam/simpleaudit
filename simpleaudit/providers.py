@@ -13,10 +13,6 @@ import os
 import getpass
 from abc import ABC, abstractmethod
 from typing import Optional
-import threading
-import subprocess
-import time
-import shutil
 
 # Lazy imports for optional dependencies
 try:
@@ -61,16 +57,13 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
     
     @abstractmethod
-    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+    def call(self, system: str, user: str) -> str:
         """
         Call the LLM with a system prompt and user message.
         
         Args:
             system: System prompt to set the LLM's behavior
             user: User message to respond to
-            extra_body: Optional provider-specific extra request body (for example,
-                        vLLM/OpenAI accepts `extra_body={"structured_outputs": {"json": ...}}` to guide
-                        structured JSON output).
         
         Returns:
             The LLM's response text
@@ -92,7 +85,7 @@ class AnthropicProvider(LLMProvider):
         api_key: Optional[str] = None,
         model: str = "claude-sonnet-4-20250514",
         prompt_for_key: bool = True,
-        base_url: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize Anthropic provider.
@@ -101,7 +94,6 @@ class AnthropicProvider(LLMProvider):
             api_key: Anthropic API key (or uses ANTHROPIC_API_KEY env var)
             model: Model to use (default: claude-sonnet-4-20250514)
             prompt_for_key: If True, prompt for key if not found in env
-            base_url: Ignored for Anthropic but accepted for compatibility
         """
         if anthropic is None:
             raise ImportError(
@@ -120,8 +112,6 @@ class AnthropicProvider(LLMProvider):
                     "or set ANTHROPIC_API_KEY environment variable."
                 )
         
-        # Keep base_url attribute for compatibility with get_provider kwargs
-        self.base_url = base_url
         self.model = model
         self._client = anthropic.Anthropic(api_key=self._api_key)
     
@@ -129,8 +119,8 @@ class AnthropicProvider(LLMProvider):
     def name(self) -> str:
         return "Anthropic"
     
-    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
-        """Call Claude with system and user prompts. `extra_body` is ignored for Anthropic."""
+    def call(self, system: str, user: str) -> str:
+        """Call Claude with system and user prompts."""
         response = self._client.messages.create(
             model=self.model,
             max_tokens=2048,
@@ -193,21 +183,30 @@ class OpenAIProvider(LLMProvider):
         """Return the configured base URL (useful for debugging)."""
         return self.base_url or "https://api.openai.com/v1"
     
-    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
-        """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"structured_outputs": {"json": schema}}`)."""
-        kwargs = {
+    def call(self, system: str, user: str) -> str:
+        """Call OpenAI with system and user prompts."""
+        # Models starting with 'o1' or 'gpt-5' often require max_completion_tokens
+        # We can try to use max_completion_tokens everywhere if the client supports it,
+        # but to be safe against older clients, we might need a check.
+        # However, the error came from the API, not the client validataion (mostly).
+        
+        # Simple heuristic: newer models use max_completion_tokens.
+        is_reasoning_model = self.model.startswith("o1") or "gpt-5" in self.model
+        
+        payload = {
             "model": self.model,
-            "max_tokens": extra_body.get("max_tokens", 2048) if extra_body else 2048,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
-        if extra_body is not None:
-            # Pass provider-specific extra body (OpenAI client supports `extra_body`)
-            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+        
+        if is_reasoning_model:
+             payload["max_completion_tokens"] = 2048
         else:
-            response = self._client.chat.completions.create(**kwargs)
+             payload["max_tokens"] = 2048
+
+        response = self._client.chat.completions.create(**payload)
         return response.choices[0].message.content
 
 
@@ -262,20 +261,16 @@ class GrokProvider(LLMProvider):
     def name(self) -> str:
         return "Grok"
     
-    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
-        """Call Grok with system and user prompts. Accepts optional `extra_body` forwarded to the underlying OpenAI-compatible client."""
-        kwargs = {
-            "model": self.model,
-            "max_tokens": 2048,
-            "messages": [
+    def call(self, system: str, user: str) -> str:
+        """Call Grok with system and user prompts."""
+        response = self._client.chat.completions.create(
+            model=self.model,
+            max_tokens=2048,
+            messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-        }
-        if extra_body is not None:
-            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
-        else:
-            response = self._client.chat.completions.create(**kwargs)
+        )
         return response.choices[0].message.content
 
 
@@ -339,46 +334,44 @@ class HuggingFaceProvider(LLMProvider):
         pipe_kwargs.update(pipeline_kwargs)
         
         self._pipeline = transformers.pipeline(**pipe_kwargs)
-        self._lock = threading.Lock()
     
     @property
     def name(self) -> str:
         return "HuggingFace"
     
-    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
-        """Call HuggingFace model with system and user prompts. `extra_body` is ignored."""
+    def call(self, system: str, user: str) -> str:
+        """Call HuggingFace model with system and user prompts."""
         # Try using chat template if available
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
         
-        with self._lock:
-            try:
-                # Use chat template via pipeline
-                outputs = self._pipeline(
-                    messages,
-                    max_new_tokens=self.max_new_tokens,
-                    do_sample=True,
-                    temperature=0.7,
-                    return_full_text=False,
-                )
-                return outputs[0]["generated_text"]
-            except Exception:
-                # Fallback: format manually if chat template fails
-                if system:
-                    prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
-                else:
-                    prompt = f"User: {user}\n\nAssistant:"
-                
-                outputs = self._pipeline(
-                    prompt,
-                    max_new_tokens=self.max_new_tokens,
-                    do_sample=True,
-                    temperature=0.7,
-                    return_full_text=False,
-                )
-                return outputs[0]["generated_text"]
+        try:
+            # Use chat template via pipeline
+            outputs = self._pipeline(
+                messages,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                return_full_text=False,
+            )
+            return outputs[0]["generated_text"]
+        except Exception:
+            # Fallback: format manually if chat template fails
+            if system:
+                prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
+            else:
+                prompt = f"User: {user}\n\nAssistant:"
+            
+            outputs = self._pipeline(
+                prompt,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=True,
+                temperature=0.7,
+                return_full_text=False,
+            )
+            return outputs[0]["generated_text"]
 
 
 class OllamaProvider(LLMProvider):
@@ -443,96 +436,6 @@ class OllamaProvider(LLMProvider):
         return data.get("message", {}).get("content", "")
 
 
-
-class CopilotProvider(LLMProvider):
-    """GitHub Copilot CLI provider.
-
-    Stateless per call:
-    - no session resume
-    - no custom instructions
-    - no tools / MCP
-    - no file or URL access
-    """
-
-    def __init__(
-        self,
-        model: str = "gpt-5-mini",
-        binary: str = "copilot",
-        deny_tools: Optional[list] = None,
-        timeout: float = 150.0,
-        base_url: Optional[str] = None,
-        **kwargs,
-    ):
-        self.model = model
-        self.binary = binary
-        self.deny_tools = deny_tools or ["write", "shell"]
-        self.timeout = timeout
-        self.base_url = base_url
-
-        if shutil.which(self.binary) is None:
-            raise FileNotFoundError(
-                f"Copilot CLI '{self.binary}' not found on PATH."
-            )
-
-    @property
-    def name(self) -> str:
-        return "Copilot"
-
-    def call(self, system: str, user: str) -> str:
-        system_prompt = system or ""
-        user_prompt = user or ""
-        prompt_arg = f"SYSTEM:\n{system_prompt}\n{user_prompt}"
-
-        cmd = [
-            self.binary,
-            "--model", self.model,
-            "--prompt", prompt_arg,
-            "--silent",
-            "--no-custom-instructions",
-            "--disable-builtin-mcps",
-            "--excluded-tools", "*",
-            "--available-tools", "",
-            "--deny-url", "*",
-            "--disallow-temp-dir",
-        ]
-
-        for t in self.deny_tools:
-            cmd.extend(["--deny-tool", t])
-
-        # minimal, clean environment
-        env = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", ""),
-            "LANG": os.environ.get("LANG", "C"),
-            "LC_ALL": os.environ.get("LC_ALL", "C"),
-        }
-
-        attempts = 5
-        last_out = ""
-        auth_error_substrs = [
-            "Error: No authentication information found.",
-            "Execution failed: Error:"
-        ]
-        for attempt in range(1, attempts + 1):
-            try:
-                last_out = subprocess.check_output(
-                    cmd,
-                    text=True,
-                    timeout=self.timeout,
-                    env=env,
-                    stderr=subprocess.STDOUT,
-                ).strip()
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(
-                    f"Copilot CLI returned non-zero exit {e.returncode}: {e.output}"
-                ) from e
-            if last_out:
-                if any(s in last_out for s in auth_error_substrs):
-                    continue
-                return last_out
-        return last_out
-
-
 # Provider registry for easy lookup
 PROVIDERS = {
     "anthropic": AnthropicProvider,
@@ -545,8 +448,6 @@ PROVIDERS = {
     "hf": HuggingFaceProvider,  # Alias
     "ollama": OllamaProvider,
     "local": OllamaProvider,  # Alias
-    "copilot": CopilotProvider,
-    "github-copilot": CopilotProvider,  # Alias
 }
 
 
@@ -594,7 +495,7 @@ def get_provider(
     provider_class = PROVIDERS[name_lower]
     
     # Local providers don't use API keys
-    local_providers = (HuggingFaceProvider, OllamaProvider, CopilotProvider)
+    local_providers = (HuggingFaceProvider, OllamaProvider)
     
     if provider_class in local_providers:
         # Only pass model and additional kwargs for local providers

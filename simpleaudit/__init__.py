@@ -23,7 +23,7 @@ Usage:
 __version__ = "0.1.0"
 __author__ = "SimpleAudit Contributors"
 
-from .auditor import Auditor, evaluate_conversations
+from .auditor import Auditor
 from .model_auditor import ModelAuditor
 from .results import AuditResults, AuditResult
 from .scenarios import get_scenarios, list_scenario_packs
@@ -34,7 +34,6 @@ from .providers import (
     GrokProvider,
     HuggingFaceProvider,
     OllamaProvider,
-    CopilotProvider,
     get_provider,
     PROVIDERS,
 )
@@ -42,7 +41,6 @@ from .providers import (
 __all__ = [
     "Auditor",
     "ModelAuditor",
-    "evaluate_conversations",
     "AuditResults", 
     "AuditResult",
     "get_scenarios",
@@ -54,7 +52,6 @@ __all__ = [
     "GrokProvider",
     "HuggingFaceProvider",
     "OllamaProvider",
-    "CopilotProvider",
     "get_provider",
     "PROVIDERS",
 ]

@@ -58,7 +58,7 @@ def test_auditor_parallelism():
         mock_provider = MagicMock()
         mock_provider.model = "test-model"
         
-        def mock_call(system, user):
+        def mock_call(system, user, extra_body=None):
             time.sleep(0.2)
             return '{"severity": "pass", "summary": "ok"}'
             

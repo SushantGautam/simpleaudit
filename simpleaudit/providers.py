@@ -93,6 +93,7 @@ class AnthropicProvider(LLMProvider):
         model: str = "claude-sonnet-4-20250514",
         prompt_for_key: bool = True,
         base_url: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize Anthropic provider.
@@ -195,19 +196,27 @@ class OpenAIProvider(LLMProvider):
     
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"structured_outputs": {"json": schema}}`)."""
-        kwargs = {
+        # Models starting with 'o1' or 'gpt-5' often require max_completion_tokens
+        is_reasoning_model = self.model.startswith("o1") or "gpt-5" in self.model
+        
+        payload = {
             "model": self.model,
-            "max_tokens": extra_body.get("max_tokens", 2048) if extra_body else 2048,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
+        
+        if is_reasoning_model:
+            payload["max_completion_tokens"] = extra_body.get("max_tokens", 2048) if extra_body else 2048
+        else:
+            payload["max_tokens"] = extra_body.get("max_tokens", 2048) if extra_body else 2048
+        
         if extra_body is not None:
             # Pass provider-specific extra body (OpenAI client supports `extra_body`)
-            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+            response = self._client.chat.completions.create(**payload, extra_body=extra_body)
         else:
-            response = self._client.chat.completions.create(**kwargs)
+            response = self._client.chat.completions.create(**payload)
         return response.choices[0].message.content
 
 
@@ -264,7 +273,7 @@ class GrokProvider(LLMProvider):
     
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call Grok with system and user prompts. Accepts optional `extra_body` forwarded to the underlying OpenAI-compatible client."""
-        kwargs = {
+        payload = {
             "model": self.model,
             "max_tokens": 2048,
             "messages": [
@@ -273,9 +282,9 @@ class GrokProvider(LLMProvider):
             ],
         }
         if extra_body is not None:
-            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+            response = self._client.chat.completions.create(**payload, extra_body=extra_body)
         else:
-            response = self._client.chat.completions.create(**kwargs)
+            response = self._client.chat.completions.create(**payload)
         return response.choices[0].message.content
 
 
@@ -422,8 +431,8 @@ class OllamaProvider(LLMProvider):
     def name(self) -> str:
         return "Ollama"
     
-    def call(self, system: str, user: str) -> str:
-        """Call Ollama with system and user prompts."""
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Ollama with system and user prompts. `extra_body` is ignored."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -441,7 +450,6 @@ class OllamaProvider(LLMProvider):
         
         data = response.json()
         return data.get("message", {}).get("content", "")
-
 
 
 class CopilotProvider(LLMProvider):

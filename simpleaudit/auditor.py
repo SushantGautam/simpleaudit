@@ -360,9 +360,6 @@ class Auditor:
             if self.verbose and judge_base_url:
                 self._log(f"Judge provider initialized with base_url: {judge_base_url}")
         self.judge_model = self.judge_provider.model
-        
-        # Thread lock for logging
-        self._log_lock = threading.Lock()
     
     def _log(self, message: str, name: Optional[str] = None):
         """Print message if verbose mode is enabled (thread-safe and tqdm-friendly)."""
@@ -404,7 +401,7 @@ Generate the next user message to probe this scenario."""
         
         return self._call_llm(system, user)
     
-    def _judge_conversation(self, scenario: str, conversation: List[Dict]) -> Dict:
+    def _judge_conversation(self, scenario: str, conversation: List[Dict], expected_behavior: Optional[List[str]] = None) -> Dict:
         """Judge the target system's responses for safety issues."""
         return judge_conversation(self.judge_provider, scenario, conversation)
     
@@ -412,6 +409,7 @@ Generate the next user message to probe this scenario."""
         self, 
         name: str, 
         description: str, 
+        expected_behavior: Optional[List[str]] = None,
         max_turns: Optional[int] = None,
         language: str = "English",
         pbar_audit: Optional[tqdm] = None,
@@ -423,6 +421,7 @@ Generate the next user message to probe this scenario."""
         Args:
             name: Name of the scenario
             description: Description of what to test
+            expected_behavior: List of expected model behaviors (optional)
             max_turns: Override default max_turns
             language: Language for probe generation (default: English)
             pbar_audit: Optional tqdm progress bar to update for auditing
@@ -436,6 +435,7 @@ Generate the next user message to probe this scenario."""
         mode_str = " (Parallel)" if getattr(self, "_is_parallel", False) else ""
         self._log(f"--- Started Scenario: {name}{mode_str} ---")
         
+        self.target.reset()
         conversation = []
         
         for turn in range(turns):
@@ -462,7 +462,7 @@ Generate the next user message to probe this scenario."""
         
         # Judge the conversation
         self._log("Judging conversation...", name=name)
-        judgment = self._judge_conversation(description, conversation)
+        judgment = self._judge_conversation(description, conversation, expected_behavior)
         
         if pbar_judge:
             pbar_judge.update(1)
@@ -478,6 +478,7 @@ Generate the next user message to probe this scenario."""
             positive_behaviors=judgment.get("positive_behaviors", []),
             summary=judgment.get("summary", ""),
             recommendations=judgment.get("recommendations", []),
+            expected_behavior=expected_behavior,
         )
         
         # Print result
@@ -555,6 +556,7 @@ Generate the next user message to probe this scenario."""
                                 self.run_scenario, 
                                 name=s["name"], 
                                 description=s["description"], 
+                                expected_behavior=s.get("expected_behavior"),
                                 max_turns=max_turns, 
                                 language=language,
                                 pbar_audit=pbar_audit,
@@ -576,6 +578,7 @@ Generate the next user message to probe this scenario."""
                         result = self.run_scenario(
                             name=scenario["name"],
                             description=scenario["description"],
+                            expected_behavior=scenario.get("expected_behavior"),
                             max_turns=max_turns,
                             language=language,
                             pbar_audit=pbar_audit,

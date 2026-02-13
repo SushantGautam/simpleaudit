@@ -1,4 +1,5 @@
 from unittest.mock import patch
+
 from simpleaudit.model_auditor import ModelAuditor
 from simpleaudit.results import AuditResults
 
@@ -25,12 +26,12 @@ def test_model_auditor_records_user_and_assistant_roles():
     with patch("simpleaudit.model_auditor.get_provider") as mock_get_provider:
         fake_target = FakeProvider(name="target")
         fake_judge = FakeProvider(name="judge")
-        
+
         # First call returns target, second returns judge (if judge_provider is set)
         mock_get_provider.return_value = fake_target
-        
+
         auditor = ModelAuditor(provider="anthropic", model="fake-model", verbose=False)
-        
+
         # Override judge with separate fake if they're different objects
         if auditor.judge_provider is not auditor.target_provider:
             auditor.judge_provider = fake_judge

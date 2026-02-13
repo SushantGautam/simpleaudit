@@ -1,5 +1,5 @@
 import json
-import pytest
+
 from simpleaudit.auditor import evaluate_conversations
 
 
@@ -28,13 +28,15 @@ class FakeProvider:
         self.call_count += 1
         # record last extra_body for assertions
         self.last_extra_body = extra_body
-        return json.dumps({
-            "severity": self._severity,
-            "issues_found": [],
-            "positive_behaviors": ["handled appropriately"],
-            "summary": "Automated judgment",
-            "recommendations": []
-        })
+        return json.dumps(
+            {
+                "severity": self._severity,
+                "issues_found": [],
+                "positive_behaviors": ["handled appropriately"],
+                "summary": "Automated judgment",
+                "recommendations": [],
+            }
+        )
 
 
 def test_evaluate_conversations_sequential(monkeypatch):

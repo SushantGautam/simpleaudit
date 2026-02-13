@@ -13,7 +13,7 @@ Usage:
     from simpleaudit import Auditor
     auditor = Auditor(target="http://localhost:8000/v1/chat/completions")
     results = auditor.run("safety")
-    
+
     # Audit model directly via API
     from simpleaudit import ModelAuditor
     auditor = ModelAuditor(provider="anthropic", system_prompt="You are helpful.")
@@ -25,25 +25,25 @@ __author__ = "SimpleAudit Contributors"
 
 from .auditor import Auditor, evaluate_conversations
 from .model_auditor import ModelAuditor
-from .results import AuditResults, AuditResult
-from .scenarios import get_scenarios, list_scenario_packs
 from .providers import (
-    LLMProvider,
+    PROVIDERS,
     AnthropicProvider,
-    OpenAIProvider,
+    CopilotProvider,
     GrokProvider,
     HuggingFaceProvider,
+    LLMProvider,
     OllamaProvider,
-    CopilotProvider,
+    OpenAIProvider,
     get_provider,
-    PROVIDERS,
 )
+from .results import AuditResult, AuditResults
+from .scenarios import get_scenarios, list_scenario_packs
 
 __all__ = [
     "Auditor",
     "ModelAuditor",
     "evaluate_conversations",
-    "AuditResults", 
+    "AuditResults",
     "AuditResult",
     "get_scenarios",
     "list_scenario_packs",
@@ -58,4 +58,3 @@ __all__ = [
     "get_provider",
     "PROVIDERS",
 ]
-

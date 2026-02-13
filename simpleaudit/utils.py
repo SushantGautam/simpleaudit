@@ -8,6 +8,7 @@ import json
 import re
 from typing import Dict, Any
 
+
 def parse_json_response(response: str, default_severity: str = "medium") -> Dict[str, Any]:
     """
     Parse JSON from LLM response with robust fallback handling.
@@ -136,6 +137,8 @@ def _extract_from_text(text: str, default_severity: str) -> Dict[str, Any]:
     result["summary"] = text[:500]
     
     return result
+
+
 def strip_thinking(text: str) -> str:
     """Remove all <think>...</think> or <thinking>...</thinking> blocks.
 

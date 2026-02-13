@@ -33,50 +33,50 @@ except ImportError:
 def prompt_for_api_key(provider_name: str, env_var: str) -> str:
     """
     Prompt user for API key via console if environment variable is not set.
-    
+
     Args:
         provider_name: Display name of the provider (e.g., "Anthropic", "OpenAI")
         env_var: Environment variable name to check first
-    
+
     Returns:
         The API key (either from env var or user input)
-    
+
     Raises:
         ValueError: If user provides empty input
     """
     api_key = os.environ.get(env_var)
     if api_key:
         return api_key
-    
+
     print(f"\n{env_var} environment variable not found.")
     api_key = getpass.getpass(f"Enter your {provider_name} API key: ")
-    
+
     if not api_key.strip():
         raise ValueError(f"{provider_name} API key is required.")
-    
+
     return api_key.strip()
 
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
-    
+
     @abstractmethod
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """
         Call the LLM with a system prompt and user message.
-        
+
         Args:
             system: System prompt to set the LLM's behavior
             user: User message to respond to
             extra_body: Optional provider-specific extra request body (for example,
                         vLLM/OpenAI accepts `extra_body={"structured_outputs": {"json": ...}}` to guide
                         structured JSON output).
-        
+
         Returns:
             The LLM's response text
         """
         pass
-    
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -86,17 +86,18 @@ class LLMProvider(ABC):
 
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude provider."""
-    
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         model: str = "claude-sonnet-4-20250514",
         prompt_for_key: bool = True,
         base_url: Optional[str] = None,
+        **kwargs,
     ):
         """
         Initialize Anthropic provider.
-        
+
         Args:
             api_key: Anthropic API key (or uses ANTHROPIC_API_KEY env var)
             model: Model to use (default: claude-sonnet-4-20250514)
@@ -107,7 +108,7 @@ class AnthropicProvider(LLMProvider):
             raise ImportError(
                 "anthropic package required. Install with: pip install anthropic"
             )
-        
+
         if api_key:
             self._api_key = api_key
         elif prompt_for_key:
@@ -119,16 +120,16 @@ class AnthropicProvider(LLMProvider):
                     "Anthropic API key required. Either pass api_key parameter "
                     "or set ANTHROPIC_API_KEY environment variable."
                 )
-        
+
         # Keep base_url attribute for compatibility with get_provider kwargs
         self.base_url = base_url
         self.model = model
         self._client = anthropic.Anthropic(api_key=self._api_key)
-    
+
     @property
     def name(self) -> str:
         return "Anthropic"
-    
+
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call Claude with system and user prompts. `extra_body` is ignored for Anthropic."""
         response = self._client.messages.create(
@@ -142,7 +143,7 @@ class AnthropicProvider(LLMProvider):
 
 class OpenAIProvider(LLMProvider):
     """OpenAI provider (GPT-4, GPT-5, etc.)."""
-    
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -152,7 +153,7 @@ class OpenAIProvider(LLMProvider):
     ):
         """
         Initialize OpenAI provider.
-        
+
         Args:
             api_key: OpenAI API key (or uses OPENAI_API_KEY env var)
             model: Model to use (default: gpt-4o)
@@ -164,7 +165,7 @@ class OpenAIProvider(LLMProvider):
                 "openai package required. Install with: pip install openai "
                 "or pip install simpleaudit[openai]"
             )
-        
+
         if api_key:
             self._api_key = api_key
         elif prompt_for_key:
@@ -176,7 +177,7 @@ class OpenAIProvider(LLMProvider):
                     "OpenAI API key required. Either pass api_key parameter "
                     "or set OPENAI_API_KEY environment variable."
                 )
-        
+
         self.model = model
         self.base_url = base_url
         # Allow optional custom base URL (for enterprise/compat clients)
@@ -184,38 +185,53 @@ class OpenAIProvider(LLMProvider):
             self._client = openai.OpenAI(api_key=self._api_key, base_url=base_url)
         else:
             self._client = openai.OpenAI(api_key=self._api_key)
-    
+
     @property
     def name(self) -> str:
         return "OpenAI"
-    
+
     def get_base_url(self) -> str:
         """Return the configured base URL (useful for debugging)."""
         return self.base_url or "https://api.openai.com/v1"
-    
+
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call OpenAI with system and user prompts. Accepts optional `extra_body` forwarded to the client's request (e.g., `{"structured_outputs": {"json": schema}}`)."""
-        kwargs = {
+        # Models starting with 'o1' or 'gpt-5' often require max_completion_tokens
+        is_reasoning_model = self.model.startswith("o1") or "gpt-5" in self.model
+
+        # Get max tokens from extra_body if provided, otherwise use default
+        if extra_body and "max_tokens" in extra_body:
+            max_tokens = extra_body.get("max_tokens", 2048)
+        else:
+            max_tokens = 2048
+
+        payload = {
             "model": self.model,
-            "max_tokens": extra_body.get("max_tokens", 2048) if extra_body else 2048,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         }
-        if extra_body is not None:
-            # Pass provider-specific extra body (OpenAI client supports `extra_body`)
-            response = self._client.chat.completions.create(**kwargs, extra_body=extra_body)
+
+        # Add appropriate max tokens parameter based on model
+        if is_reasoning_model:
+            payload["max_completion_tokens"] = max_tokens
         else:
-            response = self._client.chat.completions.create(**kwargs)
+            payload["max_tokens"] = max_tokens
+
+        # Pass extra_body if provided (OpenAI client supports this)
+        if extra_body is not None:
+            response = self._client.chat.completions.create(**payload, extra_body=extra_body)
+        else:
+            response = self._client.chat.completions.create(**payload)
         return response.choices[0].message.content
 
 
 class GrokProvider(LLMProvider):
     """Grok provider (xAI)."""
-    
+
     XAI_BASE_URL = "https://api.x.ai/v1"
-    
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -225,7 +241,7 @@ class GrokProvider(LLMProvider):
     ):
         """
         Initialize Grok provider via xAI API.
-        
+
         Args:
             api_key: xAI API key (or uses XAI_API_KEY env var)
             model: Model to use (default: grok-3)
@@ -237,7 +253,7 @@ class GrokProvider(LLMProvider):
                 "openai package required for Grok provider. Install with: "
                 "pip install openai or pip install simpleaudit[openai]"
             )
-        
+
         if api_key:
             self._api_key = api_key
         elif prompt_for_key:
@@ -249,7 +265,7 @@ class GrokProvider(LLMProvider):
                     "xAI API key required. Either pass api_key parameter "
                     "or set XAI_API_KEY environment variable."
                 )
-        
+
         self.model = model
         # Use OpenAI client with xAI base URL (xAI uses OpenAI-compatible API)
         client_base = base_url or self.XAI_BASE_URL
@@ -257,11 +273,11 @@ class GrokProvider(LLMProvider):
             api_key=self._api_key,
             base_url=client_base,
         )
-    
+
     @property
     def name(self) -> str:
         return "Grok"
-    
+
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call Grok with system and user prompts. Accepts optional `extra_body` forwarded to the underlying OpenAI-compatible client."""
         kwargs = {
@@ -281,13 +297,13 @@ class GrokProvider(LLMProvider):
 
 class HuggingFaceProvider(LLMProvider):
     """HuggingFace transformers provider for local model inference.
-    
+
     Runs models directly using the transformers library. Suitable for
     local inference on GPU or CPU.
-    
+
     Requires: pip install simpleaudit[huggingface]
     """
-    
+
     def __init__(
         self,
         model: str = "meta-llama/Llama-3.2-1B-Instruct",
@@ -298,7 +314,7 @@ class HuggingFaceProvider(LLMProvider):
     ):
         """
         Initialize HuggingFace transformers provider.
-        
+
         Args:
             model: HuggingFace model ID (e.g., "meta-llama/Llama-3.2-1B-Instruct")
             device: Device to run on ("cuda", "cpu", "mps") or None for auto
@@ -314,20 +330,20 @@ class HuggingFaceProvider(LLMProvider):
                 "transformers and torch packages required. Install with: "
                 "pip install simpleaudit[huggingface]"
             )
-        
+
         self.model = model
         self.max_new_tokens = max_new_tokens
-        
+
         # Build pipeline kwargs
         pipe_kwargs = {"model": model, "task": "text-generation"}
-        
+
         if device is not None:
             pipe_kwargs["device"] = device
         elif torch.cuda.is_available():
             pipe_kwargs["device"] = "cuda"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             pipe_kwargs["device"] = "mps"
-        
+
         if torch_dtype is not None:
             dtype_map = {
                 "float16": torch.float16,
@@ -335,16 +351,16 @@ class HuggingFaceProvider(LLMProvider):
                 "float32": torch.float32,
             }
             pipe_kwargs["torch_dtype"] = dtype_map.get(torch_dtype, torch.float16)
-        
+
         pipe_kwargs.update(pipeline_kwargs)
-        
+
         self._pipeline = transformers.pipeline(**pipe_kwargs)
         self._lock = threading.Lock()
-    
+
     @property
     def name(self) -> str:
         return "HuggingFace"
-    
+
     def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
         """Call HuggingFace model with system and user prompts. `extra_body` is ignored."""
         # Try using chat template if available
@@ -352,7 +368,7 @@ class HuggingFaceProvider(LLMProvider):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
-        
+
         with self._lock:
             try:
                 # Use chat template via pipeline
@@ -370,7 +386,7 @@ class HuggingFaceProvider(LLMProvider):
                     prompt = f"System: {system}\n\nUser: {user}\n\nAssistant:"
                 else:
                     prompt = f"User: {user}\n\nAssistant:"
-                
+
                 outputs = self._pipeline(
                     prompt,
                     max_new_tokens=self.max_new_tokens,
@@ -383,12 +399,12 @@ class HuggingFaceProvider(LLMProvider):
 
 class OllamaProvider(LLMProvider):
     """Ollama provider for locally served models.
-    
+
     Connects to a local Ollama instance. No API key required.
-    
+
     Requires: Ollama running locally (ollama serve)
     """
-    
+
     def __init__(
         self,
         model: str = "llama3.2",
@@ -397,18 +413,18 @@ class OllamaProvider(LLMProvider):
     ):
         """
         Initialize Ollama provider.
-        
+
         Args:
             model: Ollama model name (e.g., "llama3.2", "mistral", "codellama")
             base_url: Ollama server URL (default: http://localhost:11434)
             timeout: Request timeout in seconds (default: 120)
         """
         import httpx
-        
+
         self.model = model
         self.base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=timeout)
-        
+
         # Verify connection
         try:
             self._client.get(f"{self.base_url}/api/tags")
@@ -417,18 +433,18 @@ class OllamaProvider(LLMProvider):
                 f"Cannot connect to Ollama at {self.base_url}. "
                 "Make sure Ollama is running: ollama serve"
             )
-    
+
     @property
     def name(self) -> str:
         return "Ollama"
-    
-    def call(self, system: str, user: str) -> str:
-        """Call Ollama with system and user prompts."""
+
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Ollama with system and user prompts. `extra_body` is ignored."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
-        
+
         response = self._client.post(
             f"{self.base_url}/api/chat",
             json={
@@ -438,10 +454,9 @@ class OllamaProvider(LLMProvider):
             },
         )
         response.raise_for_status()
-        
+
         data = response.json()
         return data.get("message", {}).get("content", "")
-
 
 
 class CopilotProvider(LLMProvider):
@@ -478,7 +493,8 @@ class CopilotProvider(LLMProvider):
     def name(self) -> str:
         return "Copilot"
 
-    def call(self, system: str, user: str) -> str:
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Copilot CLI with system and user prompts. `extra_body` is ignored."""
         system_prompt = system or ""
         user_prompt = user or ""
         prompt_arg = f"SYSTEM:\n{system_prompt}\n{user_prompt}"
@@ -559,28 +575,28 @@ def get_provider(
 ) -> LLMProvider:
     """
     Get a provider instance by name.
-    
+
     Args:
-        name: Provider name ("anthropic", "openai", "grok", "huggingface", 
+        name: Provider name ("anthropic", "openai", "grok", "huggingface",
               "ollama", or aliases)
         api_key: Optional API key override (not used for local providers)
         model: Optional model override
         prompt_for_key: If True, prompt for key if not found in env
         **kwargs: Additional provider-specific arguments (e.g., base_url)
-    
+
     Returns:
         LLMProvider instance
-    
+
     Raises:
         ValueError: If provider name is not recognized
-    
+
     Examples:
         >>> # Default Anthropic provider
         >>> provider = get_provider("anthropic")
-        
+
         >>> # OpenAI with custom base URL
         >>> provider = get_provider("openai", base_url="https://custom.api.com/v1")
-        
+
         >>> # Local Ollama provider
         >>> provider = get_provider("ollama", model="llama3.2")
     """
@@ -590,12 +606,12 @@ def get_provider(
         raise ValueError(
             f"Unknown provider: {name}. Available providers: {available}"
         )
-    
+
     provider_class = PROVIDERS[name_lower]
-    
+
     # Local providers don't use API keys
     local_providers = (HuggingFaceProvider, OllamaProvider, CopilotProvider)
-    
+
     if provider_class in local_providers:
         # Only pass model and additional kwargs for local providers
         init_kwargs = dict(kwargs)

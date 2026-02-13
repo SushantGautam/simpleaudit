@@ -33,7 +33,7 @@ class TestExpectedBehavior(unittest.TestCase):
             max_turns=1
         )
 
-        # 1. Verify AuditResult stores exepcted_behavior
+        # 1. Verify AuditResult stores expected_behavior
         self.assertEqual(result.expected_behavior, expected_behavior)
 
         # 2. Verify judge prompt contained the expected behavior

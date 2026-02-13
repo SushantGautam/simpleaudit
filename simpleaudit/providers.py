@@ -7,12 +7,15 @@ This module provides a unified interface for different LLM providers:
 - Grok (xAI)
 - HuggingFace (local transformers)
 - Ollama (local models)
+- Copilot (GitHub Copilot CLI)
 """
 
 import os
 import getpass
 from abc import ABC, abstractmethod
 from typing import Optional
+import subprocess
+import shutil
 
 # Lazy imports for optional dependencies
 try:
@@ -449,6 +452,74 @@ class OllamaProvider(LLMProvider):
         return data.get("message", {}).get("content", "")
 
 
+class CopilotProvider(LLMProvider):
+    """GitHub Copilot CLI provider.
+    
+    Uses the GitHub Copilot CLI to interact with models.
+    Requires the copilot CLI to be installed and accessible.
+    
+    Requires: GitHub Copilot CLI (gh copilot or copilot binary)
+    """
+    
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        binary: str = "copilot",
+        base_url: Optional[str] = None,
+        **kwargs,
+    ):
+        """
+        Initialize Copilot provider.
+        
+        Args:
+            model: Model name to use (e.g., "gpt-4o", "gpt-4")
+            binary: Name of the copilot binary (default: "copilot")
+            base_url: Optional base URL (kept for compatibility, not used)
+            **kwargs: Additional arguments (ignored, for compatibility)
+        """
+        self.model = model
+        self.binary = binary
+        self.base_url = base_url
+        
+        # Check if copilot binary is available
+        if not shutil.which(self.binary):
+            raise FileNotFoundError(
+                f"Copilot binary '{self.binary}' not found. "
+                f"Please install GitHub Copilot CLI."
+            )
+    
+    @property
+    def name(self) -> str:
+        return "Copilot"
+    
+    def call(self, system: str, user: str, extra_body: Optional[dict] = None) -> str:
+        """Call Copilot CLI with system and user prompts. `extra_body` is ignored."""
+        # Combine system and user prompts for the CLI
+        prompt = f"{system}\n\n{user}" if system else user
+        
+        # Build the command to call copilot CLI
+        cmd = [
+            self.binary,
+            "--model", self.model,
+            "--prompt", prompt,
+            "--deny-tool",  # Disable tool usage for simpler responses
+        ]
+        
+        try:
+            # Execute the command and capture output
+            output = subprocess.check_output(
+                cmd,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            # Strip trailing whitespace/newlines
+            return output.strip()
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"Copilot CLI call failed: {e.output}"
+            )
+
+
 # Provider registry for easy lookup
 PROVIDERS = {
     "anthropic": AnthropicProvider,
@@ -461,6 +532,8 @@ PROVIDERS = {
     "hf": HuggingFaceProvider,  # Alias
     "ollama": OllamaProvider,
     "local": OllamaProvider,  # Alias
+    "copilot": CopilotProvider,
+    "github-copilot": CopilotProvider,  # Alias
 }
 
 
@@ -476,7 +549,7 @@ def get_provider(
     
     Args:
         name: Provider name ("anthropic", "openai", "grok", "huggingface", 
-              "ollama", or aliases)
+              "ollama", "copilot", or aliases)
         api_key: Optional API key override (not used for local providers)
         model: Optional model override
         prompt_for_key: If True, prompt for key if not found in env
@@ -497,6 +570,9 @@ def get_provider(
         
         >>> # Local Ollama provider
         >>> provider = get_provider("ollama", model="llama3.2")
+        
+        >>> # GitHub Copilot CLI provider
+        >>> provider = get_provider("copilot", model="gpt-4o")
     """
     name_lower = name.lower()
     if name_lower not in PROVIDERS:
@@ -508,7 +584,7 @@ def get_provider(
     provider_class = PROVIDERS[name_lower]
     
     # Local providers don't use API keys
-    local_providers = (HuggingFaceProvider, OllamaProvider)
+    local_providers = (HuggingFaceProvider, OllamaProvider, CopilotProvider)
     
     if provider_class in local_providers:
         # Only pass model and additional kwargs for local providers

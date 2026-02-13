@@ -34,6 +34,7 @@ from .providers import (
     GrokProvider,
     HuggingFaceProvider,
     OllamaProvider,
+    CopilotProvider,
     get_provider,
     PROVIDERS,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "GrokProvider",
     "HuggingFaceProvider",
     "OllamaProvider",
+    "CopilotProvider",
     "get_provider",
     "PROVIDERS",
 ]
